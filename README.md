@@ -23,6 +23,7 @@ Works with **Claude Code** and **OpenAI Codex CLI**.
 | Skill | Description |
 |-------|-------------|
 | **coordinator** | Pure-delegation control plane with a 10-phase state machine. Plans, delegates, reviews, and learns. 14 specialized agents with JSON Schema output contracts. |
+| **mine-transcripts** | Sweep sub-agent JSONL transcripts for novel learnings and promote the strongest to durable docs. Parallel mining with dedupe baseline. |
 
 ### Development Process (from [partyline](https://github.com/dennisonbertram/partyline) + [synthetix](https://github.com/dennisonbertram/synthetix))
 
@@ -126,7 +127,15 @@ Tests each story for correctness, visual quality, and UX excellence.
 
 7-phase deterministic workflow: symptom → archaeology → reproduce → logs → hypothesis → fix → regression test.
 
-### 7. Guard against regressions
+### 7. Mine session transcripts for learnings
+
+```
+/mine-transcripts
+```
+
+Discovers sub-agent JSONLs, mines them in parallel for dead ends, silently-recovered errors, and design sub-decisions, then promotes high-confidence findings to durable docs.
+
+### 8. Guard against regressions
 
 ```
 /regression-guard
@@ -213,6 +222,8 @@ developer-skill-pack/
 │   │   ├── agents/                    # 14 agent definitions
 │   │   ├── schemas/                   # JSON Schema output contracts
 │   │   └── templates/
+│   ├── mine-transcripts/               # Session transcript mining
+│   │   └── SKILL.md
 │   ├── setup-repo/                    # Repo scaffolding
 │   │   ├── SKILL.md
 │   │   └── references/               # GitHub templates, hooks, PR template

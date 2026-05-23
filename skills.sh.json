@@ -10,7 +10,7 @@
     {
       "title": "Coordination",
       "description": "Multi-agent orchestration with planning, delegation, review, and learning.",
-      "skills": ["coordinator"]
+      "skills": ["coordinator", "mine-transcripts"]
     },
     {
       "title": "Development Process",
