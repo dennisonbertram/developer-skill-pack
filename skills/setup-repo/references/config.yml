@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Project Docs Index
+    url: docs/index.md
+    about: Start with the canonical docs before opening work.
+  - name: Development Process
+    url: docs/process/github-build-process.md
+    about: Use the repo's required issue and PR workflow.

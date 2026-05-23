@@ -1,0 +1,21 @@
+{
+  "$schema": "https://skills.sh/schema/skills.sh.json",
+  "notGrouped": "bottom",
+  "groupings": [
+    {
+      "title": "UX Testing",
+      "description": "Generate user journeys, walk them through a real browser, and implement the issues found.",
+      "skills": ["ux-paths", "ux-walker", "walk-the-issues"]
+    },
+    {
+      "title": "Coordination",
+      "description": "Multi-agent orchestration with planning, delegation, review, and learning.",
+      "skills": ["coordinator"]
+    },
+    {
+      "title": "Development Process",
+      "description": "TDD workflow, debugging, regression testing, and repo scaffolding.",
+      "skills": ["setup-repo", "debug", "regression-guard", "research-spike"]
+    }
+  ]
+}

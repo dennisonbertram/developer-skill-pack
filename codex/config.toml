@@ -1,0 +1,24 @@
+# Codex CLI configuration for developer-skill-pack
+# Copy to .codex/config.toml in your project root
+
+[agents]
+max_threads = 8
+max_depth = 2
+
+[features]
+multi_agent = true
+hooks = true
+
+# TDD reminder hook — fires before Edit/Write of src/ files
+[[hooks.pre_tool_use]]
+command = "bash hooks/tdd-reminder.sh"
+matcher = "apply_patch"
+
+# Session start hook — announces TDD requirement
+[[hooks.session_start]]
+command = "bash hooks/session-start.sh"
+
+# Skills configuration — enable all skills from this pack
+[[skills.config]]
+path = "skills/"
+enabled = true

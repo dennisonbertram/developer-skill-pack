@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/dennisonbertram/claude-coordinator/schemas/distiller-output.schema.json",
+  "title": "Distiller Output",
+  "description": "Output contract for the `distiller` agent. Compresses raw evidence into reusable knowledge artifacts. Every produced artifact must cite at least one evidence pointer back to raw input.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "task_type",
+    "input_sources",
+    "output_directory",
+    "summary",
+    "artifacts_produced",
+    "claims_without_evidence",
+    "open_questions_carried_forward"
+  ],
+  "properties": {
+    "task_id": { "type": "string", "pattern": "^TASK-[A-Z0-9-]+$" },
+    "task_type": { "type": "string", "const": "distillation" },
+    "input_sources": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1
+    },
+    "output_directory": { "type": "string", "minLength": 1 },
+    "summary": { "type": "string", "minLength": 1 },
+    "artifacts_produced": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "category", "title", "evidence_pointers"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "category": { "type": "string", "enum": ["gotcha", "pattern", "anti-pattern", "playbook", "before-you-build", "decision-record", "other"] },
+          "title": { "type": "string", "minLength": 1 },
+          "evidence_pointers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["source", "excerpt"],
+              "properties": {
+                "source": { "type": "string", "minLength": 1 },
+                "locator": { "type": "string" },
+                "excerpt": { "type": "string", "minLength": 1 }
+              }
+            },
+            "minItems": 1
+          }
+        }
+      }
+    },
+    "claims_without_evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["claim", "intended_category", "reason_skipped"],
+        "properties": {
+          "claim": { "type": "string", "minLength": 1 },
+          "intended_category": { "type": "string", "enum": ["gotcha", "pattern", "anti-pattern", "playbook", "before-you-build", "decision-record", "other"] },
+          "reason_skipped": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "open_questions_carried_forward": { "type": "array", "items": { "type": "string" } }
+  }
+}

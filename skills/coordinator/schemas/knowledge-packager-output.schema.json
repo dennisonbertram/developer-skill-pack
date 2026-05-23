@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/dennisonbertram/claude-coordinator/schemas/knowledge-packager-output.schema.json",
+  "title": "Knowledge Packager Output",
+  "description": "Output contract for the `knowledge-packager` agent. Assembles distilled knowledge into a navigable, self-contained artifact. Output must be usable without reading raw inputs; all files must be reachable from the index.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "task_type",
+    "input_directory",
+    "output_directory",
+    "package_style",
+    "target_audience",
+    "summary",
+    "index_path",
+    "artifacts_produced",
+    "navigability_check",
+    "sections_produced"
+  ],
+  "properties": {
+    "task_id": { "type": "string", "pattern": "^TASK-[A-Z0-9-]+$" },
+    "task_type": { "type": "string", "const": "packaging" },
+    "input_directory": { "type": "string", "minLength": 1 },
+    "output_directory": { "type": "string", "minLength": 1 },
+    "package_style": { "type": "string", "enum": ["skill-pack", "runbook", "onboarding-guide", "internal-wiki", "other"] },
+    "target_audience": { "type": "string", "minLength": 1 },
+    "summary": { "type": "string", "minLength": 1 },
+    "index_path": { "type": "string", "minLength": 1 },
+    "artifacts_produced": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "section"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "section": { "type": "string", "enum": ["index", "quickstart", "lessons", "labs", "recipes", "checklists", "troubleshooting", "agent-instructions", "other"] },
+          "title": { "type": "string" },
+          "outbound_links": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "minItems": 1
+    },
+    "navigability_check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["all_files_reachable_from_index", "broken_links", "orphan_files"],
+      "properties": {
+        "all_files_reachable_from_index": { "type": "boolean" },
+        "broken_links": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["from", "target"],
+            "properties": {
+              "from": { "type": "string" },
+              "target": { "type": "string" }
+            }
+          }
+        },
+        "orphan_files": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "sections_produced": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["index", "quickstart", "lessons", "labs", "recipes", "checklists", "troubleshooting", "agent-instructions", "other"] },
+      "minItems": 1
+    }
+  }
+}

@@ -1,0 +1,121 @@
+name: Feature slice
+description: A buildable, PR-sized feature or improvement
+title: "feat: "
+labels: ["type:feature"]
+body:
+  - type: textarea
+    id: why
+    attributes:
+      label: Why this matters
+      description: What customer, operator, or product outcome does this unlock?
+    validations:
+      required: true
+  - type: textarea
+    id: protected_path
+    attributes:
+      label: User/operator path protected
+      description: Name the concrete path this ticket makes better or safer.
+      placeholder: |
+        A customer/operator can ...
+    validations:
+      required: true
+  - type: textarea
+    id: behavior_contract
+    attributes:
+      label: Behavior contract
+      description: Describe the intended user-visible or operator-visible behavior in scenario form.
+      placeholder: |
+        - Given ...
+          When ...
+          Then ...
+    validations:
+      required: true
+  - type: textarea
+    id: in_scope
+    attributes:
+      label: In scope
+      description: Specific behavior this issue should implement.
+      placeholder: |
+        - ...
+    validations:
+      required: true
+  - type: textarea
+    id: out_scope
+    attributes:
+      label: Out of scope
+      description: Things that should not be included in this PR-sized slice.
+      placeholder: |
+        - ...
+    validations:
+      required: true
+  - type: textarea
+    id: tests
+    attributes:
+      label: Tests to add first
+      description: Name the unit/contract, behavior, integration, or regression tests that should fail before implementation.
+      placeholder: |
+        - Smallest unit/contract test:
+          - Test file:
+          - Expected red command:
+          - Expected red reason:
+        - Behavior/integration test:
+          - Test file:
+          - Expected red command:
+          - Expected red reason:
+    validations:
+      required: true
+  - type: textarea
+    id: tdd_audit
+    attributes:
+      label: TDD audit trail
+      description: Plan the red/green commit evidence for this issue.
+      value: |
+        - [ ] Red test commit planned:
+          - Commit:
+          - Failing command/output:
+        - [ ] Green implementation commit planned:
+          - Commit:
+          - Passing command/output:
+        - [ ] If the red and green work cannot be separated into commits, explain why:
+    validations:
+      required: true
+  - type: textarea
+    id: regression_concerns
+    attributes:
+      label: Regression risks and concerns
+      description: What existing behavior could this accidentally break?
+    validations:
+      required: true
+  - type: textarea
+    id: agent_todos
+    attributes:
+      label: Agent todo checklist
+      description: Ordered checkboxes concrete enough that another agent can continue the work.
+      value: |
+        - [ ] Read the relevant context docs and identify the protected path.
+        - [ ] Run the smallest meaningful baseline command for the touched surface.
+        - [ ] Add or identify the failing test for the smallest behavior.
+        - [ ] Confirm the expected red state before implementation.
+        - [ ] Commit the failing test-only change on the work branch.
+        - [ ] Implement the smallest change that turns the targeted test green.
+        - [ ] Commit the green implementation separately from the red test commit.
+        - [ ] Run the targeted test and adjacent suite.
+        - [ ] Run typecheck and full test suite.
+        - [ ] Update docs with verification notes.
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Definition of done
+      value: |
+        - [ ] Smallest behavior test observed red first
+        - [ ] Red test commit exists on the work branch
+        - [ ] Green implementation commit exists after the red test commit
+        - [ ] Targeted tests pass
+        - [ ] Adjacent suite passes
+        - [ ] Typecheck passes
+        - [ ] Full test suite passes or pre-existing failures are documented
+        - [ ] Docs updated
+    validations:
+      required: true

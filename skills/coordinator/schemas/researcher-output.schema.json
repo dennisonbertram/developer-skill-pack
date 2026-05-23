@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/dennisonbertram/claude-coordinator/schemas/researcher-output.schema.json",
+  "title": "Researcher Output",
+  "description": "Output contract for the `researcher` agent. Deep external research on a tool/library/ecosystem. Writes artifacts to a coordinator-specified output directory; returns a manifest with capability map, mental model, failure modes, expectation gaps, and sources.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "task_type",
+    "target",
+    "research_questions",
+    "summary",
+    "output_directory",
+    "artifacts_produced",
+    "capability_map_summary",
+    "mental_model_summary",
+    "failure_modes_summary",
+    "expectation_gaps",
+    "open_questions",
+    "sources",
+    "commands_run"
+  ],
+  "properties": {
+    "task_id": { "type": "string", "pattern": "^TASK-[A-Z0-9-]+$" },
+    "task_type": { "type": "string", "const": "research" },
+    "target": { "type": "string", "minLength": 1 },
+    "research_questions": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1
+    },
+    "summary": { "type": "string", "minLength": 1 },
+    "output_directory": { "type": "string", "minLength": 1 },
+    "artifacts_produced": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "section"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "section": {
+            "type": "string",
+            "enum": ["capability_map", "mental_model", "failure_modes", "expectation_gaps", "open_questions", "sources", "runtime_probes", "other"]
+          },
+          "title": { "type": "string" }
+        }
+      },
+      "minItems": 1
+    },
+    "capability_map_summary": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["capability", "limits", "evidence"],
+        "properties": {
+          "capability": { "type": "string", "minLength": 1 },
+          "description": { "type": "string" },
+          "limits": { "type": "array", "items": { "type": "string" } },
+          "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence" }, "minItems": 1 }
+        }
+      }
+    },
+    "mental_model_summary": { "type": "string", "minLength": 1 },
+    "failure_modes_summary": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "trigger", "symptom", "mitigation", "evidence"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "trigger": { "type": "string", "minLength": 1 },
+          "symptom": { "type": "string", "minLength": 1 },
+          "mitigation": { "type": "string", "minLength": 1 },
+          "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence" }, "minItems": 1 }
+        }
+      }
+    },
+    "expectation_gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["claim", "reality", "confidence", "evidence"],
+        "properties": {
+          "claim": { "type": "string", "minLength": 1 },
+          "reality": { "type": "string", "minLength": 1 },
+          "source_of_misconception": { "type": "string" },
+          "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
+          "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence" }, "minItems": 1 }
+        }
+      }
+    },
+    "open_questions": { "type": "array", "items": { "type": "string" } },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["url", "credibility", "accessed"],
+        "properties": {
+          "url": { "type": "string", "minLength": 1 },
+          "title": { "type": "string" },
+          "credibility": { "type": "string", "enum": ["official", "vendor-blog", "community", "third-party", "inferred"] },
+          "accessed": { "type": "string", "description": "ISO 8601 date (YYYY-MM-DD)." }
+        }
+      },
+      "minItems": 1
+    },
+    "commands_run": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["doc_excerpt", "source_code", "command_output", "runtime_probe", "third_party_writeup", "other"] },
+        "source": { "type": "string" },
+        "locator": { "type": "string" },
+        "excerpt": { "type": "string" },
+        "command": { "type": "string" },
+        "output": { "type": "string" }
+      }
+    }
+  }
+}

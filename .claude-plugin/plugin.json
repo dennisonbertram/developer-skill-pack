@@ -1,0 +1,24 @@
+{
+  "name": "developer-skill-pack",
+  "version": "1.0.0",
+  "description": "Complete development toolkit — UX testing, multi-agent coordination, TDD workflow, GitHub templates, research spikes, and repo scaffolding. Works with Claude Code and OpenAI Codex CLI.",
+  "author": {
+    "name": "Dennison Bertram"
+  },
+  "homepage": "https://github.com/dennisonbertram/developer-skill-pack",
+  "repository": "https://github.com/dennisonbertram/developer-skill-pack",
+  "license": "MIT",
+  "keywords": [
+    "agents",
+    "coordination",
+    "orchestration",
+    "ux-testing",
+    "tdd",
+    "multi-agent",
+    "github-templates",
+    "research",
+    "code-review",
+    "regression",
+    "skill-pack"
+  ]
+}

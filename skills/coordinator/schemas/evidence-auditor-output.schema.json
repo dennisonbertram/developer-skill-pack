@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/dennisonbertram/claude-coordinator/schemas/evidence-auditor-output.schema.json",
+  "title": "Evidence Auditor Output",
+  "description": "Output contract for the `evidence-auditor` agent. Read-only audit of claim-vs-evidence integrity across an artifact set. Gates work against named quality criteria.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "task_type",
+    "artifact_set",
+    "evidence_sources",
+    "gates_evaluated",
+    "overall_verdict",
+    "unverified_claims",
+    "verified_claims_count",
+    "unverified_claims_count",
+    "recommendations",
+    "files_inspected",
+    "commands_run"
+  ],
+  "properties": {
+    "task_id": { "type": "string", "pattern": "^TASK-[A-Z0-9-]+$" },
+    "task_type": { "type": "string", "const": "audit" },
+    "artifact_set": { "type": "string", "minLength": 1 },
+    "evidence_sources": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "gates_evaluated": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["gate_name", "criteria", "verdict", "issues"],
+        "properties": {
+          "gate_name": { "type": "string", "minLength": 1 },
+          "criteria": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 },
+          "verdict": { "type": "string", "enum": ["pass", "needs-work", "fail"] },
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["criterion", "result", "detail"],
+              "properties": {
+                "criterion": { "type": "string", "minLength": 1 },
+                "result": { "type": "string", "enum": ["pass", "fail", "partial"] },
+                "detail": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "overall_verdict": { "type": "string", "enum": ["pass", "needs-work", "fail"] },
+    "unverified_claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["claim", "location", "severity", "suggestion"],
+        "properties": {
+          "claim": { "type": "string", "minLength": 1 },
+          "location": { "type": "string", "minLength": 1 },
+          "evidence_expected_in": { "type": "array", "items": { "type": "string" } },
+          "severity": { "type": "string", "enum": ["critical", "high", "medium", "low", "info"] },
+          "suggestion": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "verified_claims_count": { "type": "integer", "minimum": 0 },
+    "unverified_claims_count": { "type": "integer", "minimum": 0 },
+    "recommendations": { "type": "array", "items": { "type": "string" } },
+    "files_inspected": { "type": "array", "items": { "type": "string" } },
+    "commands_run": { "type": "array", "items": { "type": "string" } }
+  }
+}

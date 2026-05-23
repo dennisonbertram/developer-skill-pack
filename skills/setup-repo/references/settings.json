@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"$TOOL_INPUT\" | grep -q '\"file_path\"[[:space:]]*:[[:space:]]*\"[^\"]*src/' ; then echo 'TDD REMINDER: You are about to modify a src/ file. Before writing implementation code, you MUST:\n1. Write or identify a FAILING test first (Red)\n2. Make the smallest change to pass that test (Green)\n3. Refactor only after tests are green (Refactor)\n\nIf you have not yet written or confirmed a failing test for this change, STOP and write the test first.' ; fi"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'TDD-FIRST DEVELOPMENT IS REQUIRED IN THIS REPOSITORY.\n\nBefore writing ANY implementation code:\n1. RED   — Write a failing test that defines the desired behavior\n2. GREEN — Write the minimum code to make the test pass\n3. REFACTOR — Clean up while keeping tests green\n\nThis is a non-negotiable workflow requirement. Do not skip it.'"
+          }
+        ]
+      }
+    ]
+  }
+}
