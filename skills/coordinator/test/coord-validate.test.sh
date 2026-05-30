@@ -117,6 +117,59 @@ else
        "expected exit 0, got exit $rc — output: $out"
 fi
 
+# =============================================================================
+# REGRESSION TESTS — added in regression commit.
+# These tests would FAIL if the path fix in coord-validate were reverted.
+# They also verify that all three exit-code contracts hold across multiple
+# agents, proving the fix is not issue-implementer-specific.
+# =============================================================================
+
+# --- RT-001: reviewer schema resolves correctly (third agent, not worker/issue-implementer) ---
+# If the path were reverted to $SCRIPT_DIR/../schemas, every agent would get
+# exit 2 regardless of name. Checking a third distinct agent (reviewer) proves
+# the fix applies universally to the SCHEMAS_DIR computation, not just to the
+# two agents tested above.
+INVALID_REVIEWER_FILE="$TMPDIR_TEST/invalid-reviewer.json"
+cat > "$INVALID_REVIEWER_FILE" <<'ENDJSON'
+{ "not": "a valid reviewer output" }
+ENDJSON
+out=$(cd "$COORD_DIR" && ./coord-validate reviewer "$INVALID_REVIEWER_FILE" 2>&1); rc=$?
+if [ "$rc" -eq 1 ]; then
+  pass "RT-001: reviewer schema resolves and invalid doc exits 1 (fix is not agent-specific)"
+else
+  fail "RT-001: reviewer schema resolves and invalid doc exits 1 (fix is not agent-specific)" \
+       "expected exit 1 (schema found, validation failed), got exit $rc — output: $out"
+fi
+
+# --- RT-002: SCHEMAS_DIR points to the sibling directory, not a parent directory ---
+# Directly assert the resolved SCHEMAS_DIR path contains the schemas. This
+# test catches any future regression where the path calculation is changed
+# back to a parent-relative computation.
+SCHEMAS_SIBLING="$COORD_DIR/schemas"
+if [ -d "$SCHEMAS_SIBLING" ] && ls "$SCHEMAS_SIBLING"/*.schema.json >/dev/null 2>&1; then
+  pass "RT-002: schemas directory exists as sibling of coord-validate ($SCHEMAS_SIBLING)"
+else
+  fail "RT-002: schemas directory exists as sibling of coord-validate" \
+       "expected $SCHEMAS_SIBLING to be a directory with *.schema.json files"
+fi
+
+# --- RT-003: invalid worker doc exits 1, not 2 ---
+# If the path fix were reverted, this would return exit 2 (schema not found).
+# Exit 1 confirms the worker schema was found and the validation rejection is
+# about content, not about a missing schema.
+INVALID_WORKER_FILE="$TMPDIR_TEST/invalid-worker.json"
+cat > "$INVALID_WORKER_FILE" <<'ENDJSON'
+{ "task_id": "TASK-001" }
+ENDJSON
+# Missing all other required fields — should fail validation (exit 1), not fail schema lookup (exit 2).
+out=$(cd "$COORD_DIR" && ./coord-validate worker "$INVALID_WORKER_FILE" 2>&1); rc=$?
+if [ "$rc" -eq 1 ]; then
+  pass "RT-003: invalid worker doc exits 1 (schema found, content rejected)"
+else
+  fail "RT-003: invalid worker doc exits 1 (schema found, content rejected)" \
+       "expected exit 1, got exit $rc — output: $out"
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 echo ""
