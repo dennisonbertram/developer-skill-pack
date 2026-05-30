@@ -1,0 +1,61 @@
+{
+  "goal_id": "goal-2026-001",
+  "issue_number": 42,
+  "issue_url": "https://github.com/acme/myapp/issues/42",
+  "loop_status": "completed",
+  "claim_evidence": {
+    "label_swap_confirmed": true,
+    "self_assign_confirmed": true
+  },
+  "files_changed": [
+    "/abs/path/apps/api/src/middleware/rate-limit.ts",
+    "/abs/path/apps/api/src/routes/auth.ts",
+    "/abs/path/apps/api/src/routes/auth.test.ts"
+  ],
+  "audit_trail_commits": {
+    "red": {
+      "hash": "a1b2c3d",
+      "subject": "test(red): TASK-042 failing tests for rate-limit"
+    },
+    "green": {
+      "hash": "e4f5a6b",
+      "subject": "feat: TASK-042 implement per-IP rate limiting"
+    },
+    "regression": {
+      "hash": "f7c8d9e",
+      "subject": "test(regression): TASK-042 regression coverage for rate-limit"
+    }
+  },
+  "tdd_evidence": {
+    "failing_before_implementation": "FAIL apps/api/src/routes/auth.test.ts\n  ● returns 429 after threshold exceeded\n    Expected: 429\n    Received: 200\n\nTest Suites: 1 failed, 1 total\nTests: 1 failed, 1 total",
+    "passing_after_implementation": "PASS apps/api/src/routes/auth.test.ts\n  ✓ returns 429 after threshold exceeded (12ms)\n  ✓ includes Retry-After header (8ms)\n\nTest Suites: 1 passed, 1 total\nTests: 2 passed, 2 total",
+    "full_suite_at_regression": "Test Suites: 14 passed, 14 total\nTests: 92 passed, 92 total\nTime: 4.321s"
+  },
+  "behavioral_tests": [
+    {
+      "spec_id": "BT-001",
+      "description": "When client exceeds 100 requests per 60 seconds, next request returns 429",
+      "status": "pass"
+    },
+    {
+      "spec_id": "BT-002",
+      "description": "When rate limit exceeded, response includes Retry-After header with correct seconds",
+      "status": "pass"
+    }
+  ],
+  "regression_tests": [
+    {
+      "test_name": "rate-limit honors Retry-After header",
+      "catches": "If the Retry-After header is dropped from the 429 response, this test fails because it asserts the header exists with the correct seconds value."
+    }
+  ],
+  "pr_url": "https://github.com/acme/myapp/pull/57",
+  "dod_checklist_results": [
+    { "item": "All existing tests pass", "status": "pass" },
+    { "item": "Rate limiting applied to POST /api/auth/login", "status": "pass" },
+    { "item": "TDD audit trail (red → green → regression) present", "status": "pass" },
+    { "item": "PR targets dev branch with Closes #42", "status": "pass" }
+  ],
+  "blocked": false,
+  "recommended_next_step": "Merge the PR after design-partner review. Consider adding Redis-backed distributed rate limiting before horizontal scaling."
+}
