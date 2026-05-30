@@ -1,0 +1,15 @@
+{
+  "goal_id": "goal-2026-002",
+  "issue_number": 55,
+  "issue_url": "https://github.com/acme/myapp/issues/55",
+  "loop_status": "blocked",
+  "claim_evidence": {
+    "label_swap_confirmed": true,
+    "self_assign_confirmed": true
+  },
+  "blocked": true,
+  "blocked_reason": "The upstream API endpoint returns 503 intermittently under load. Cannot implement the feature reliably until the API team resolves the instability. See #54 for context.",
+  "pr_url": null,
+  "behavioral_tests": [],
+  "recommended_next_step": "Assign to groomer for API stability investigation. Re-open with status:ready once the upstream API is stable."
+}

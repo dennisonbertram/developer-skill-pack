@@ -1,0 +1,7 @@
+{
+  "goal_id": "goal-2026-003",
+  "loop_status": "terminal",
+  "run_stop_reason": "no_ready_issues",
+  "pr_url": null,
+  "recommended_next_step": "Backlog is exhausted. Notify the groomer to triage and label new issues as status:ready before the next agent run."
+}
