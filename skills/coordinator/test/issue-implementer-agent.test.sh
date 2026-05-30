@@ -72,19 +72,24 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# BT-005: state machine — all required phases present in the body
+# BT-005: state machine — all required phases appear as labeled headings/steps
+# (tightened: bare word match is NOT sufficient; each phase must appear as a
+# numbered heading like "#### 1. `startup`" or as "startup" in a labeled-step
+# context so removal of a phase description would cause this test to fail)
 # ---------------------------------------------------------------------------
 MISSING_PHASES=()
-for phase in startup select claim ground plan delegate integrate review test validate close loop; do
-  if ! grep -qi "\b${phase}\b" "$AGENT_FILE" 2>/dev/null; then
+for phase in startup select claim ground plan delegate integrate review test validate close; do
+  # Require the phase to appear as a markdown heading (### or ####) with the phase word,
+  # OR as a numbered step pattern like "1. `startup`" — not just a bare word anywhere.
+  if ! grep -qiE "^#+[[:space:]].*\b${phase}\b|^[[:space:]]*[0-9]+\.[[:space:]]+\`${phase}\`" "$AGENT_FILE" 2>/dev/null; then
     MISSING_PHASES+=("$phase")
   fi
 done
 if [ ${#MISSING_PHASES[@]} -eq 0 ]; then
-  pass "BT-005: body names every state-machine phase (startup, select, claim, ground, plan, delegate, integrate, review, test, validate, close, loop)"
+  pass "BT-005: every state-machine phase appears as a heading or labeled step (startup through close)"
 else
-  fail "BT-005: body names every state-machine phase" \
-       "missing phases: ${MISSING_PHASES[*]}"
+  fail "BT-005: every state-machine phase appears as a heading or labeled step" \
+       "missing phases as headings/steps: ${MISSING_PHASES[*]}"
 fi
 
 # ---------------------------------------------------------------------------
@@ -136,6 +141,165 @@ if grep -q 'issue-implementer' "$SKILL_FILE" 2>/dev/null; then
 else
   fail "BT-010: SKILL.md contains an 'issue-implementer' row" \
        "expected 'issue-implementer' entry in $SKILL_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-011: per-variant output shapes documented — completed variant names its fields
+# The doc must explicitly document the 'completed' variant with its required fields.
+# ---------------------------------------------------------------------------
+if grep -qi "completed.*goal_id\|loop_status.*completed\|completed.*issue_number\|completed.*pr_url\|completed.*audit_trail_commits\|completed.*behavioral_tests\|completed.*tdd_evidence" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-011: doc documents 'completed' variant with its required fields"
+else
+  fail "BT-011: doc documents 'completed' variant with its required fields" \
+       "expected 'completed' variant with field documentation (goal_id, issue_number, pr_url, audit_trail_commits, behavioral_tests, tdd_evidence) in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-012: per-variant output shapes documented — blocked variant names its fields
+# The doc must explicitly document the 'blocked' variant with blocked:true and blocked_reason.
+# ---------------------------------------------------------------------------
+if grep -qi "blocked.*goal_id\|loop_status.*blocked\|blocked.*blocked_reason\|blocked.*claim_evidence\|blocked.*pr_url.*null\|blocked_reason" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-012: doc documents 'blocked' variant with its required fields"
+else
+  fail "BT-012: doc documents 'blocked' variant with its required fields" \
+       "expected 'blocked' variant documentation with blocked_reason and pr_url:null in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-013: per-variant output shapes documented — terminal variant names its fields
+# The doc must explicitly document the 'terminal' variant with run_stop_reason.
+# ---------------------------------------------------------------------------
+if grep -qi "terminal.*goal_id\|loop_status.*terminal\|terminal.*run_stop_reason\|terminal.*recommended_next_step" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-013: doc documents 'terminal' variant with its required fields"
+else
+  fail "BT-013: doc documents 'terminal' variant with its required fields" \
+       "expected 'terminal' variant documentation with run_stop_reason in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-014: per-issue total attempt budget documented (F3 — bound all loops)
+# The doc must define a per-issue total attempt budget (e.g. default 3) that
+# spans the review/test/validate→delegate re-delegation cycles.
+# The ci_retry_budget only covers CI retries; a separate attempt_budget (or
+# total_attempt_budget) is needed to cap ALL re-delegation cycles (review, test,
+# validate, etc.). Must use the specific variable name to be unambiguous.
+# ---------------------------------------------------------------------------
+if grep -qE "attempt_budget|total_attempt_budget" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-014: doc documents per-issue total attempt budget (attempt_budget)"
+else
+  fail "BT-014: doc documents per-issue total attempt budget (attempt_budget)" \
+       "expected 'attempt_budget' or 'total_attempt_budget' variable name in $AGENT_FILE — bounded re-delegation loop requires explicit budget"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-015: circuit-breaker semantics documented (F4 — resolve contradiction)
+# The doc must clearly state:
+#   - per-issue CI exhaustion → block THAT issue and CONTINUE the loop
+#   - consecutive CI-blocked issues → run-level circuit breaker (stop)
+# ---------------------------------------------------------------------------
+if grep -qiE "circuit.breaker|consecutive.*block|block.*consecutive|systemic|consecutive.*ci|ci.*consecutive" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-015: doc documents circuit-breaker semantics for consecutive CI failures"
+else
+  fail "BT-015: doc documents circuit-breaker semantics for consecutive CI failures" \
+       "expected circuit-breaker or consecutive-block semantics in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-016: per-issue CI exhaustion is block-and-continue (not run-stop)
+# The doc must explicitly state that exhausting ci_retry_budget for ONE issue
+# blocks that issue but the loop CONTINUES to the next issue.
+# Must be in the context of CI/pnpm verify (not just the general blocked path).
+# ---------------------------------------------------------------------------
+if grep -qiE "ci.*budget.*block.*continue|ci_retry.*block.*continue|pnpm.*verify.*block.*continue|ci.*exhaust.*continue.*loop|budget.*exhaust.*block.*issue.*continue|per.issue.*ci.*block.*continue" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-016: doc states per-issue CI exhaustion = block-and-continue (not run-stop)"
+else
+  fail "BT-016: doc states per-issue CI exhaustion = block-and-continue (not run-stop)" \
+       "expected explicit text that CI-budget exhaustion blocks the issue but the loop continues in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-017: untrusted issue content section present (F5)
+# The doc must have a section explicitly flagging issue-derived text (title, body)
+# as UNTRUSTED, and requiring branch-slug whitelist and --body-file for PR/comments.
+# ---------------------------------------------------------------------------
+if grep -qiE "untrusted|UNTRUSTED|untruste" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-017: doc contains untrusted-issue-content section"
+else
+  fail "BT-017: doc contains untrusted-issue-content section" \
+       "expected 'UNTRUSTED' or 'untrusted' section for issue-derived content in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-018: branch slug whitelist documented (F5)
+# Branch slugs must be whitelisted to [a-z0-9-] characters.
+# ---------------------------------------------------------------------------
+if grep -qiE "\[a-z0-9-\]|whitelist.*slug|slug.*whitelist|sanitize.*branch|branch.*sanitize|a-z.*0-9.*slug|slug.*a-z.*0-9" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-018: doc documents branch-slug character whitelist [a-z0-9-]"
+else
+  fail "BT-018: doc documents branch-slug character whitelist [a-z0-9-]" \
+       "expected '[a-z0-9-]' branch slug whitelist in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-019: --body-file pattern documented for PR/comment bodies (F5)
+# PR titles/bodies and issue comments must use --body-file to avoid injection.
+# ---------------------------------------------------------------------------
+if grep -qiE "\-\-body-file|body.file|body_file" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-019: doc documents --body-file pattern for PR/comment bodies"
+else
+  fail "BT-019: doc documents --body-file pattern for PR/comment bodies" \
+       "expected '--body-file' pattern for safe PR/comment bodies in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-020: gh issue list uses --limit flag (F6)
+# Without --limit, gh silently caps at 30 and starves older issues.
+# The select query must use --limit (e.g., --limit 200).
+# ---------------------------------------------------------------------------
+if grep -qiE "\-\-limit[[:space:]]+[0-9]|--limit [0-9]" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-020: select query uses --limit flag to avoid silent 30-issue cap"
+else
+  fail "BT-020: select query uses --limit flag to avoid silent 30-issue cap" \
+       "expected '--limit <N>' in gh issue list select query in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-021: client-side sort documented for select (F6)
+# After fetching with --limit, the doc must sort by issue number or createdAt
+# ascending client-side to guarantee the oldest issue is selected.
+# ---------------------------------------------------------------------------
+if grep -qiE "sort.*client|client.*sort|sort.*ascending|ascending.*sort|sort.*number|sort.*createdAt|createdAt.*sort|jq.*sort|sort_by" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-021: select step documents client-side sort to pick oldest issue"
+else
+  fail "BT-021: select step documents client-side sort to pick oldest issue" \
+       "expected client-side sort (e.g. jq sort_by) in select query documentation in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-022: kill-switch re-check before claim documented (F7)
+# The candidate's labels must be RE-FETCHED immediately before the claim
+# mutation to catch a kill label applied in the select→claim window.
+# Requires explicit re-fetch/re-check language in the claim phase (not just
+# the select-phase check — both must be present, and this test verifies the
+# claim-phase re-check specifically using "re-fetch" or "re-check" language).
+# ---------------------------------------------------------------------------
+if grep -qiE "re.fetch.*label|re.fetch.*kill|re-fetch.*before|re-check.*before.*claim|immediately before.*claim|claim.*phase.*kill|claim.*re.fetch|re.fetch.*claim" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-022: doc documents kill-switch label re-fetch immediately before claim mutation"
+else
+  fail "BT-022: doc documents kill-switch label re-fetch immediately before claim mutation" \
+       "expected explicit re-fetch of labels before claim mutation (not just select-phase check) in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-023: coord-validate usage with file path documented in output contract
+# The doc must instruct the agent to validate output via coord-validate <file>
+# (file path, not stdin) — specifically in the output-contract section.
+# ---------------------------------------------------------------------------
+if grep -qiE "coord-validate issue-implementer" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-023: doc shows coord-validate usage with 'coord-validate issue-implementer'"
+else
+  fail "BT-023: doc shows coord-validate usage with 'coord-validate issue-implementer'" \
+       "expected 'coord-validate issue-implementer' usage example in $AGENT_FILE"
 fi
 
 # ===========================================================================
