@@ -1,0 +1,6 @@
+{
+  "goal_id": "goal-groomer-2026-003",
+  "groom_status": "terminal",
+  "run_stop_reason": "no_status_less_issues",
+  "recommended_next_step": "Backlog is exhausted — no open status-less issues remain. Run the groomer again after new issues are filed, or enable WATCH mode to re-check on a poll interval."
+}

@@ -1,0 +1,243 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/dennisonbertram/developer-skill-pack/schemas/issue-groomer-output.schema.json",
+  "title": "Issue Groomer Output",
+  "description": "Output contract for the `issue-groomer` agent. One object per goal (one groomed issue). The agent loops autonomously through status-less open issues, exhaustively grooming each one and applying status:ready (clear path) or status:blocked (fully groomed, path-decision needed), then continuing to the next.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "goal_id",
+    "groom_status",
+    "recommended_next_step"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": { "groom_status": { "const": "ready" } },
+        "required": ["groom_status"]
+      },
+      "then": {
+        "required": [
+          "goal_id",
+          "groom_status",
+          "issue_number",
+          "issue_url",
+          "claim_evidence",
+          "template_used",
+          "codebase_grounding",
+          "dor_checklist_results",
+          "assumptions_made",
+          "alternatives_considered",
+          "ui_ux_notes",
+          "recommended_next_step"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": { "groom_status": { "const": "blocked" } },
+        "required": ["groom_status"]
+      },
+      "then": {
+        "required": [
+          "goal_id",
+          "groom_status",
+          "issue_number",
+          "issue_url",
+          "claim_evidence",
+          "template_used",
+          "codebase_grounding",
+          "dor_checklist_results",
+          "assumptions_made",
+          "alternatives_considered",
+          "ui_ux_notes",
+          "escalation_reason",
+          "recommended_next_step"
+        ],
+        "properties": {
+          "escalation_reason": { "type": "string", "minLength": 1 },
+          "alternatives_considered": { "minItems": 1 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "groom_status": { "const": "skipped" } },
+        "required": ["groom_status"]
+      },
+      "then": {
+        "required": [
+          "goal_id",
+          "groom_status",
+          "issue_number",
+          "issue_url",
+          "skip_reason",
+          "recommended_next_step"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": { "groom_status": { "const": "terminal" } },
+        "required": ["groom_status"]
+      },
+      "then": {
+        "required": [
+          "goal_id",
+          "groom_status",
+          "run_stop_reason",
+          "recommended_next_step"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": { "groom_status": { "const": "failed" } },
+        "required": ["groom_status"]
+      },
+      "then": {
+        "required": [
+          "goal_id",
+          "groom_status",
+          "issue_number",
+          "issue_url",
+          "failure_reason",
+          "recommended_next_step"
+        ],
+        "properties": {
+          "failure_reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  ],
+  "properties": {
+    "goal_id": {
+      "type": "string",
+      "description": "Unique identifier for this goal instance, e.g. 'goal-groomer-2026-001'.",
+      "minLength": 1
+    },
+    "groom_status": {
+      "type": "string",
+      "enum": ["ready", "blocked", "skipped", "terminal", "failed"],
+      "description": "Outcome of this grooming cycle. 'ready' = issue fully groomed with clear implementation path, status:ready applied; 'blocked' = exhaustively groomed but a genuine product/path decision is needed by a human, status:blocked applied; 'skipped' = issue already had a status label (no grooming needed); 'terminal' = no more status-less issues to groom; 'failed' = operational/budget failure that prevented grooming completion (NOT a product decision — retry after adjusting limits)."
+    },
+    "issue_number": {
+      "type": "integer",
+      "description": "GitHub issue number that was groomed.",
+      "minimum": 1
+    },
+    "issue_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Full URL of the GitHub issue, e.g. 'https://github.com/acme/myapp/issues/73'."
+    },
+    "claim_evidence": {
+      "type": "object",
+      "description": "Best-effort claim evidence; the label-swap claim is non-atomic in v1 (sequential/single-instance only). Records the status-less -> status:grooming transition attempt before grooming began.",
+      "additionalProperties": false,
+      "required": ["label_swap_confirmed", "self_assign_confirmed"],
+      "properties": {
+        "label_swap_confirmed": {
+          "type": "boolean",
+          "description": "True if the status:grooming label was applied to claim the issue."
+        },
+        "self_assign_confirmed": {
+          "type": "boolean",
+          "description": "True if the issue was self-assigned to prevent double-pickup."
+        }
+      }
+    },
+    "template_used": {
+      "type": "string",
+      "description": "The issue template name used for grooming (e.g. 'feature-slice', 'bug-regression'), or a fallback note like 'fallback: feature-ticket-format' if the target repo has no .github/ISSUE_TEMPLATE/ directory.",
+      "minLength": 1
+    },
+    "codebase_grounding": {
+      "type": "object",
+      "description": "Evidence of deep codebase research performed before drafting the groomed issue body.",
+      "additionalProperties": false,
+      "required": ["verified_paths", "docs_read"],
+      "properties": {
+        "verified_paths": {
+          "type": "array",
+          "description": "Real file paths verified to exist in the target repository codebase.",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "docs_read": {
+          "type": "array",
+          "description": "Product and context documents read during research (e.g. product-vision.md, repo-practices.md).",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "dor_checklist_results": {
+      "type": "array",
+      "description": "Definition of Ready checklist items with pass/fail/na status. The DOR is the groomer's exit gate — producing exactly what the implementer's ground/intake phase needs.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["item", "status"],
+        "properties": {
+          "item":   { "type": "string", "minLength": 1 },
+          "status": { "type": "string", "enum": ["pass", "fail", "na"] }
+        }
+      }
+    },
+    "assumptions_made": {
+      "type": "array",
+      "description": "Documented assumptions made during grooming, with rationale for each.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["assumption", "rationale"],
+        "properties": {
+          "assumption": { "type": "string", "minLength": 1 },
+          "rationale":  { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "alternatives_considered": {
+      "type": "array",
+      "description": "Implementation alternatives researched and analyzed, with a recommendation flag. Required for groom_status:blocked (minItems:1). Encouraged for groom_status:ready when multiple viable paths were considered.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["option", "analysis", "recommended"],
+        "properties": {
+          "option":      { "type": "string", "minLength": 1 },
+          "analysis":    { "type": "string", "minLength": 1 },
+          "recommended": { "type": "boolean" }
+        }
+      }
+    },
+    "ui_ux_notes": {
+      "type": "string",
+      "description": "User-facing UX observations and constraints for this issue: how the change should feel to the user, error states, loading states, non-breaking UX invariants, and any accessibility or visual consistency notes."
+    },
+    "escalation_reason": {
+      "type": "string",
+      "description": "Required when groom_status=blocked. Specific description of the genuine product/path decision that needs a human. Must be actionable — describe what needs to be decided, not just that a decision is needed. minLength:1 ensures the string is non-empty.",
+      "minLength": 1
+    },
+    "skip_reason": {
+      "type": "string",
+      "description": "Required when groom_status=skipped. Reason the issue was skipped — typically that it already had a non-status-less label (e.g. status:in-progress, status:ready) when selected.",
+      "minLength": 1
+    },
+    "run_stop_reason": {
+      "type": "string",
+      "description": "Required when groom_status=terminal. Reason the agent loop stopped. 'max_issues_reached' = max_issues_per_run limit hit; 'kill_switch' = status:kill label detected; 'no_status_less_issues' = backlog exhausted in one-shot mode (permanent terminal — no more issues to groom); 'watch_poll_wait' = transient terminal — groomer is entering a WATCH-mode sleep cycle and will re-check after poll_interval (re-check scheduled, not a permanent stop).",
+      "enum": ["max_issues_reached", "kill_switch", "no_status_less_issues", "watch_poll_wait"]
+    },
+    "failure_reason": {
+      "type": "string",
+      "description": "Required when groom_status=failed. Describes the operational or budget failure that prevented grooming completion. Must NOT be used when groom_status is ready, blocked, skipped, or terminal. minLength:1 ensures the string is non-empty.",
+      "minLength": 1
+    },
+    "recommended_next_step": {
+      "type": "string",
+      "description": "Specific recommendation for what should happen next (human reviewer, implementer agent, or groomer re-run).",
+      "minLength": 1
+    }
+  }
+}

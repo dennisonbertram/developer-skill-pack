@@ -35,6 +35,7 @@ If invoked with no arguments, the coordinator enters the `intake` phase and asks
 | **learning-extractor** | Opus | Read, Glob, Grep, Bash | Surfaces learnings from task artifacts and transcripts. |
 | **scribe** | Haiku | Read, Write | Writes all state files. |
 | **issue-implementer** | Opus | Agent | Autonomous groomed-backlog → tested-PR loop. Claims status:ready issues, implements each via TDD workers in dedicated worktrees, opens a PR, then loops to the next ready issue. Started via `--agent issue-implementer`; runs unattended after invocation. See [docs/issue-implementer-runbook.md](docs/issue-implementer-runbook.md) for preconditions, label setup, stop conditions, and first-run guidance. |
+| **issue-groomer** | Opus | Agent | Autonomous backlog groomer. Claims open status-less issues, researches each deeply (codebase + product docs + external APIs), fills the target repo's issue template exhaustively with behavior contracts, assumptions, and alternatives, then applies status:ready (clear implementation path) or status:blocked (exhaustively groomed, genuine product/path decision needed). Loops; in WATCH mode re-checks every poll_interval for new issues. Started via `--agent issue-groomer`; runs unattended after invocation. See [docs/issue-groomer-runbook.md](docs/issue-groomer-runbook.md) for preconditions, label setup, stop conditions, and first-run guidance. |
 
 ## State Machine
 
