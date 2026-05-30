@@ -443,6 +443,92 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# BT-024: worker-selection table does NOT have a routing row for 'refactor'
+# The table cell mapping 'refactor' to 'worker-refactor' must be absent.
+# The "Deferred" note WILL mention 'refactor' by name — so we must NOT just
+# check for word presence. We look for a table row that maps refactor to a
+# worker (pipe-separated, with 'refactor' as the task-type cell).
+# ---------------------------------------------------------------------------
+if grep -qiE "^\|[[:space:]]*\`?refactor\`?[[:space:]]*\|" "$AGENT_FILE" 2>/dev/null; then
+  fail "BT-024: worker-selection table has no routing row for 'refactor'" \
+       "found a table row with 'refactor' as task type — routing row must be removed (Deferred note is ok)"
+else
+  pass "BT-024: worker-selection table has no routing row for 'refactor'"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-025: worker-selection table does NOT have a routing row for 'test'
+# Same logic as BT-024 — the Deferred note may mention 'test', but no pipe row
+# should map 'test' as a task type to a worker.
+# ---------------------------------------------------------------------------
+if grep -qiE "^\|[[:space:]]*\`?test\`?[[:space:]]*\|" "$AGENT_FILE" 2>/dev/null; then
+  fail "BT-025: worker-selection table has no routing row for 'test'" \
+       "found a table row with 'test' as task type — routing row must be removed (Deferred note is ok)"
+else
+  pass "BT-025: worker-selection table has no routing row for 'test'"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-026: doc contains the "Deferred — refactor/test" note
+# The note must explain that refactor/test issue types are not in v1 and
+# mention what would need to be done to restore them.
+# ---------------------------------------------------------------------------
+if grep -qiE "Deferred.*refactor.test|Deferred.*refactor/test|deferred.*refactor.*test" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-026: doc contains the 'Deferred — refactor/test' note"
+else
+  fail "BT-026: doc contains the 'Deferred — refactor/test' note" \
+       "expected 'Deferred' note about refactor/test issue types in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-027: close phase documents DoD checklist rendered as markdown checkboxes
+# The close phase PR body must include the DoD checklist as real markdown
+# checkboxes (- [x] / - [ ]) mirroring dod_checklist_results.
+# ---------------------------------------------------------------------------
+if grep -qiE "\- \[x\]|\- \[ \]|dod_checklist_results.*checkbox|checkbox.*dod_checklist|markdown.*checkbox.*dod|dod.*markdown.*checkbox" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-027: close phase documents DoD checklist as markdown checkboxes"
+else
+  fail "BT-027: close phase documents DoD checklist as markdown checkboxes" \
+       "expected '- [x]' / '- [ ]' checkbox pattern or dod_checklist_results checkbox reference in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-028: close phase documents collapsible <details>/<summary> raw-report block
+# The PR body must include a <details><summary>Machine-readable run report</summary>
+# block with the full raw JSON report.
+# ---------------------------------------------------------------------------
+if grep -qiE "<details>|<summary>.*[Mm]achine.readable|<summary>.*[Rr]un [Rr]eport" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-028: close phase documents collapsible <details>/<summary> raw-report block"
+else
+  fail "BT-028: close phase documents collapsible <details>/<summary> raw-report block" \
+       "expected '<details><summary>Machine-readable run report</summary>' pattern in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-029: close phase explicitly uses --body-file for PR creation (not inline)
+# The PR body built from the goal report must be passed via --body-file <tempfile>
+# to avoid shell injection from untrusted issue content.
+# ---------------------------------------------------------------------------
+if grep -qiE "\-\-body-file.*tempfile|\-\-body-file.*tmp|body.file.*pr.*create|pr.*create.*body.file|--body-file.*pr.body" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-029: close phase uses --body-file <tempfile> for PR creation"
+else
+  fail "BT-029: close phase uses --body-file <tempfile> for PR creation" \
+       "expected '--body-file <tempfile>' pattern in close phase PR creation in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-030: close phase states the PR is self-contained proof (no .coord/ link)
+# The doc must explicitly state the PR body is the durable proof and that
+# .coord/ is ephemeral/gitignored — NOT to rely on .coord/ links.
+# ---------------------------------------------------------------------------
+if grep -qiE "\.coord.*ephemeral|ephemeral.*\.coord|\.coord.*gitignored|gitignored.*\.coord|self.contained.*proof|PR.*durable.*proof|durable.*proof.*PR|do not store.*\.coord|not.*store.*only.*\.coord" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-030: close phase states PR is self-contained proof (not .coord/ link)"
+else
+  fail "BT-030: close phase states PR is self-contained proof (not .coord/ link)" \
+       "expected statement that .coord/ is ephemeral/gitignored and PR body is the durable proof in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""
