@@ -1,0 +1,56 @@
+{
+  "goal_id": "goal-groomer-2026-001",
+  "groom_status": "ready",
+  "issue_number": 73,
+  "issue_url": "https://github.com/acme/myapp/issues/73",
+  "claim_evidence": {
+    "label_swap_confirmed": true,
+    "self_assign_confirmed": true
+  },
+  "template_used": "feature-slice",
+  "codebase_grounding": {
+    "verified_paths": [
+      "apps/api/src/routes/sessions.ts",
+      "apps/api/src/middleware/auth.ts",
+      "apps/web/src/pages/dashboard.tsx"
+    ],
+    "docs_read": [
+      "docs/context/product-vision.md",
+      "docs/context/repo-practices.md",
+      "AGENTS.md"
+    ]
+  },
+  "dor_checklist_results": [
+    { "item": "Testable Given/When/Then behavior contract written", "status": "pass" },
+    { "item": "Verified real file paths from codebase grounding", "status": "pass" },
+    { "item": "Concrete integration spec with existing API contracts", "status": "pass" },
+    { "item": "Definition of Done checklist complete", "status": "pass" },
+    { "item": "In-scope and out-of-scope defined", "status": "pass" },
+    { "item": "Regression risks identified", "status": "pass" },
+    { "item": "Deploy/doc impact assessed", "status": "pass" }
+  ],
+  "assumptions_made": [
+    {
+      "assumption": "The session token is stored as a cookie, not in localStorage, based on reading apps/api/src/middleware/auth.ts line 34.",
+      "rationale": "Cookie-based storage is the existing pattern in the middleware. Implementing session refresh via cookie avoids any localStorage security concerns and is consistent with the current architecture."
+    },
+    {
+      "assumption": "The dashboard at apps/web/src/pages/dashboard.tsx is the primary authenticated surface requiring the session-refresh flow.",
+      "rationale": "Reading apps/web/src/pages/ reveals dashboard.tsx is the only page with a session-dependent data fetch on mount. Other pages are either public or delegate to dashboard layout."
+    }
+  ],
+  "alternatives_considered": [
+    {
+      "option": "Short-lived tokens with silent refresh via a background /refresh endpoint",
+      "analysis": "Keeps the session alive without user interruption. Requires implementing a background interval in the client. Most secure option — tokens expire quickly even if leaked. Recommended for V1 because the infrastructure already has a /refresh stub in sessions.ts.",
+      "recommended": true
+    },
+    {
+      "option": "Long-lived tokens with no refresh",
+      "analysis": "Simpler implementation but increases breach window if a token is stolen. Not recommended because it conflicts with the product vision's security posture for an enterprise-facing tool.",
+      "recommended": false
+    }
+  ],
+  "ui_ux_notes": "The user should experience no interruption when the session is refreshed silently. On explicit logout, the session cookie must be cleared and the user redirected to /login. Error state (refresh failed) should show a non-blocking banner prompting re-login, not a hard redirect that loses form state.",
+  "recommended_next_step": "Issue is ready for implementation. Implementer should claim via status:ready -> status:in-progress and follow the behavior contract in the issue body."
+}

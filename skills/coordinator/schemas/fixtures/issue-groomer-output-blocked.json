@@ -1,0 +1,62 @@
+{
+  "goal_id": "goal-groomer-2026-002",
+  "groom_status": "blocked",
+  "issue_number": 81,
+  "issue_url": "https://github.com/acme/myapp/issues/81",
+  "claim_evidence": {
+    "label_swap_confirmed": true,
+    "self_assign_confirmed": true
+  },
+  "template_used": "feature-slice",
+  "codebase_grounding": {
+    "verified_paths": [
+      "apps/api/src/routes/billing.ts",
+      "apps/api/src/models/subscription.ts",
+      "apps/web/src/pages/settings/billing.tsx"
+    ],
+    "docs_read": [
+      "docs/context/product-vision.md",
+      "docs/context/repo-practices.md",
+      "docs/research/billing-providers.md"
+    ]
+  },
+  "dor_checklist_results": [
+    { "item": "Testable Given/When/Then behavior contract written", "status": "pass" },
+    { "item": "Verified real file paths from codebase grounding", "status": "pass" },
+    { "item": "Concrete integration spec with existing API contracts", "status": "pass" },
+    { "item": "Definition of Done checklist complete", "status": "pass" },
+    { "item": "In-scope and out-of-scope defined", "status": "pass" },
+    { "item": "Regression risks identified", "status": "pass" },
+    { "item": "Deploy/doc impact assessed — requires billing provider decision first", "status": "fail" }
+  ],
+  "assumptions_made": [
+    {
+      "assumption": "The billing provider integration will use Stripe, based on the stub imports found in apps/api/src/routes/billing.ts.",
+      "rationale": "Stripe is the only provider with stub code in the codebase. However, product leadership has not confirmed this choice, and the issue originally mentioned evaluating alternatives."
+    },
+    {
+      "assumption": "The subscription model in apps/api/src/models/subscription.ts is stable and will not be redesigned as part of this billing provider integration.",
+      "rationale": "The model has been stable for 3 months with no open issues. Assuming it is the contract the billing provider layer should conform to, not the other way around."
+    }
+  ],
+  "alternatives_considered": [
+    {
+      "option": "Stripe — webhook-based subscription management with Stripe Billing portal",
+      "analysis": "Full-featured, battle-tested, existing stub code in billing.ts. Strong customer portal UX. Higher cost at scale (~0.5% transaction fee). Fastest to implement given existing stubs. Recommended if time-to-market is the priority.",
+      "recommended": true
+    },
+    {
+      "option": "Paddle — VAT-inclusive pricing, merchant of record",
+      "analysis": "Better for international customers (Paddle handles VAT). No existing integration code. Requires rewriting the billing route and subscription model. Recommended if the product targets EU customers heavily.",
+      "recommended": false
+    },
+    {
+      "option": "Build in-house — store card tokens via Stripe Elements but manage subscriptions manually",
+      "analysis": "Maximum flexibility but requires building dunning, retry logic, invoicing, and refund flows from scratch. Not recommended — too much scope for V1.",
+      "recommended": false
+    }
+  ],
+  "ui_ux_notes": "Billing settings page at /settings/billing should display current plan, next billing date, and a upgrade/downgrade CTA. The billing portal (Stripe or Paddle hosted) should open in a new tab or modal to avoid losing the settings page state. Payment failure should trigger an in-app banner on the dashboard, not just an email.",
+  "escalation_reason": "The billing provider has not been decided by product leadership. Stripe vs Paddle is a product/commercial decision (pricing model, international VAT handling, merchant-of-record preference) that cannot be resolved by codebase analysis alone. The ticket is fully groomed for both paths; a human must choose the provider before implementation can begin.",
+  "recommended_next_step": "Assign to product leadership to decide billing provider (Stripe vs Paddle). Once decided, update issue with the chosen option and transition to status:ready. All technical groundwork is complete in this issue body."
+}
