@@ -58,18 +58,34 @@ Orient yourself. Note any conventions that affect how you delegate (branch namin
 Spawn a **worker-investigation** to query the target repo's issues:
 
 ```
-gh issue list --label "status:ready" --state open --json number,title,labels,url
+gh issue list --label "status:ready" --state open --limit 200 --json number,title,labels,createdAt
 ```
 
-Select the **oldest open issue** labeled `status:ready`. Age is determined by issue number (ascending) or creation date — take the lowest-numbered `status:ready` issue.
+**IMPORTANT — `--limit` is required:** Without `--limit`, `gh` silently caps results at 30 and starves older issues. Always pass `--limit 200` (or higher) to ensure the full ready queue is visible.
 
-**Kill switch:** Before claiming, check whether the candidate also carries the label `status:kill`. If it does, **stop immediately** — do not claim it, do not loop further. Report `loop_status: "terminal"`, `run_stop_reason: "kill_switch"`, and exit cleanly.
+After fetching, sort client-side by issue number ascending (or `createdAt` ascending) to select the genuinely **oldest** ready issue:
+
+```
+# Example jq: sort_by(.number) | first
+gh issue list --label "status:ready" --state open --limit 200 --json number,title,labels,createdAt \
+  | jq 'sort_by(.number) | first'
+```
+
+**Kill switch:** Check whether the candidate also carries the label `status:kill`. If it does, **stop immediately** — do not claim it, do not loop further. Report `loop_status: "terminal"`, `run_stop_reason: "kill_switch"`, and exit cleanly.
 
 **No ready issues:** If no `status:ready` issues exist, report `loop_status: "terminal"`, `run_stop_reason: "no_ready_issues"`, and exit cleanly.
 
 **Stop condition — max_issues_per_run:** Track how many goals have been completed in this run. If the count has already reached `max_issues_per_run` (default: 5, configurable at invocation), report `loop_status: "terminal"`, `run_stop_reason: "max_issues_reached"`, and exit cleanly.
 
 #### 3. `claim`
+
+**Kill-switch re-fetch before claim:** Immediately before issuing the claim mutation, re-fetch the candidate issue's labels to catch a `status:kill` label applied in the select→claim window:
+
+```
+gh issue view <N> --json labels
+```
+
+If `status:kill` appears in the re-fetched labels, abort the claim — do not apply the label swap. Report `loop_status: "terminal"`, `run_stop_reason: "kill_switch"`, and exit cleanly. Keep the select-phase check too; this re-check before claim is an additional guard.
 
 Delegate an **atomic claim** to a **worker** (since worker-investigation is read-only):
 
@@ -109,7 +125,7 @@ Derive the execution plan directly from the issue's agent-todo checklist. No hum
 
 Spawn the correct worker variant in a **dedicated git worktree LOCAL to the target project**:
 
-- Create a feature branch: `feat/issue-<N>-<slug>` where slug is a short kebab-case title from the issue.
+- Create a feature branch: `feat/issue-<N>-<slug>` where slug is derived from the issue number + a sanitized title. Branch slugs MUST be whitelisted to `[a-z0-9-]` characters only — strip or replace any other character before constructing the branch name. Never interpolate raw issue title text into a shell command.
 - Create a worktree at a path isolated from the main checkout: e.g. `../worktrees/issue-<N>`.
 - Pass the full task contract to the worker, including:
   - `title` — from issue title
@@ -128,7 +144,13 @@ Spawn the correct worker variant in a **dedicated git worktree LOCAL to the targ
 
 Worker outputs a JSON report conforming to `schemas/worker-output.schema.json` (or the variant's schema). Write the output to a temp file for validation.
 
-**CI retry budget (ci_retry_budget):** If the worker completes but `pnpm verify` fails on the target branch, delegate a **worker** fix task. Allow up to `ci_retry_budget` (default: 2) retry attempts. If the budget is exhausted and CI still fails, fall through to the blocked path. Record `run_stop_reason: "ci_retry_budget_exhausted"` if this causes a loop termination.
+**Per-issue total attempt budget (attempt_budget):** To prevent unbounded re-delegation cycles across ALL phases (review, test, validate, delegate retries), track a per-issue `attempt_budget` (default: 3) counting every time the loop returns to `delegate` for this issue. When `attempt_budget` is exhausted, fall through to the blocked path immediately — do not re-delegate further. Set `blocked_reason` to indicate the attempt budget was exhausted after N attempts.
+
+**CI retry budget (ci_retry_budget):** If the worker completes but `pnpm verify` fails on the target branch, delegate a **worker** fix task. Allow up to `ci_retry_budget` (default: 2) retry attempts per issue. Each CI retry counts against the per-issue `attempt_budget`.
+
+**Per-issue CI budget exhaustion → block-and-continue:** If the ci_retry_budget for this issue is exhausted and CI still fails, fall through to the blocked path for THAT issue. Label it `status:blocked`, emit `loop_status: "blocked"`, and **continue the loop** — return to `select` for the next `status:ready` issue. Per-issue CI exhaustion is NOT a run-stop event.
+
+**Circuit breaker — consecutive CI failures:** If a configurable number of CONSECUTIVE issues block due to CI/`pnpm verify` exhaustion (default threshold: 3), this signals a systemic problem (e.g., broken base branch). In that case, STOP the entire run with `loop_status: "terminal"` and `run_stop_reason: "ci_retry_budget_exhausted"`. Reset the consecutive-failure counter whenever an issue completes successfully.
 
 #### 7. `integrate`
 
@@ -138,7 +160,7 @@ Validate the worker's JSON output using `coord-validate`. **Pass the output as a
 cd <skill-coordinator-dir> && ./coord-validate <agent> /abs/path/to/output.json
 ```
 
-- If validation fails (exit 1): reject the output and re-delegate with the validator's error message pointing at the offending field.
+- If validation fails (exit 1): reject the output and re-delegate with the validator's error message pointing at the offending field (counts against the per-issue `attempt_budget`).
 - If schema not found (exit 2): report a blocker — the schema file is missing from the skill pack.
 - If validation passes (exit 0): proceed.
 
@@ -155,7 +177,7 @@ Spawn a **reviewer** for:
 
 For low-risk, well-scoped changes (a single function in a single file, full test coverage, no security surface), review is optional — use judgment.
 
-If any `critical` or `high` severity findings: re-delegate a fix worker before proceeding. If `medium` or lower: note in the goal output and proceed.
+If any `critical` or `high` severity findings: re-delegate a fix worker before proceeding (each re-delegation counts against the per-issue `attempt_budget`). If `medium` or lower: note in the goal output and proceed.
 
 #### 9. `test`
 
@@ -165,7 +187,7 @@ Spawn testing subagents:
 - **ui-tester** (user-facing changes only) — visual quality inspection via browser automation.
 - **ux-tester** (user-facing changes only) — usability evaluation via browser automation.
 
-If any tester returns **FAIL**: return to `delegate` with fix tasks. If **NEEDS-WORK** on critical/major issues: fix before closing. If all return **PASS**: proceed.
+If any tester returns **FAIL**: return to `delegate` with fix tasks (each return counts against the per-issue `attempt_budget`). If **NEEDS-WORK** on critical/major issues: fix before closing. If all return **PASS**: proceed.
 
 #### 10. `validate`
 
@@ -177,7 +199,7 @@ Spawn an **intent-validator** with:
 The intent-validator maps each DoD checklist item to pass/fail. Record results in `dod_checklist_results`.
 
 - If **SATISFIED**: proceed to close.
-- If **NEEDS-WORK**: return to `delegate` with tasks to close the gaps.
+- If **NEEDS-WORK**: return to `delegate` with tasks to close the gaps (each return counts against the per-issue `attempt_budget`).
 
 Unlike the coordinator's `validate` phase, this agent does NOT ask the human user for confirmation — the issue's DoD IS the authority. The intent-validator runs in background (no user interaction gate).
 
@@ -213,9 +235,9 @@ If at any phase (ground, delegate, integrate, test, validate) the issue cannot b
 3. Delegate a **worker** to:
    ```
    gh issue edit <N> --remove-label "status:in-progress" --add-label "status:blocked"
-   gh issue comment <N> --body "<detailed groomer-facing comment>"
+   gh issue comment <N> --body-file /tmp/blocked-comment-<N>.md
    ```
-   The comment MUST state:
+   Write the comment body to a temp file first (`--body-file`) — never interpolate issue-derived text into the shell command. The comment MUST state:
    - What was attempted
    - Exactly what information or resource is missing
    - What needs to be provided or fixed to unblock
@@ -233,6 +255,8 @@ If at any phase (ground, delegate, integrate, test, validate) the issue cannot b
 |-----------|---------|----------|
 | `max_issues_per_run` | 5 | Pass as invocation argument |
 | `ci_retry_budget` | 2 retries per issue | Pass as invocation argument |
+| `attempt_budget` | 3 total delegate cycles per issue (spans all re-delegation: review/test/validate/CI) | Pass as invocation argument |
+| `consecutive_ci_block_threshold` | 3 consecutive CI-blocked issues triggers circuit breaker (run stop) | Pass as invocation argument |
 | Kill switch | `status:kill` label on next candidate | Apply label to any issue in the queue |
 
 ### `run_stop_reason` values
@@ -242,7 +266,7 @@ If at any phase (ground, delegate, integrate, test, validate) the issue cannot b
 | `max_issues_reached` | Completed `max_issues_per_run` goals; stopping cleanly |
 | `kill_switch` | Next candidate carried `status:kill`; stopping cleanly |
 | `no_ready_issues` | No `status:ready` issues remain; stopping cleanly |
-| `ci_retry_budget_exhausted` | CI retries exhausted on a goal; blocked and stopping |
+| `ci_retry_budget_exhausted` | **Circuit breaker:** consecutive issues blocked by CI/`pnpm verify` exhaustion reached the threshold (default: 3). Signals a systemic problem (e.g., broken base branch). Per-issue CI exhaustion alone does NOT stop the run — it blocks that issue and continues. |
 
 When the loop ends for any of these reasons, emit a final summary with `loop_status: "terminal"` and the appropriate `run_stop_reason`.
 
@@ -270,7 +294,7 @@ gh label create "status:kill"        --color "000000" --description "Kill switch
 
 ## Output Contract
 
-Each goal emits one JSON object conforming to `schemas/issue-implementer-output.schema.json`. Validate with:
+Each goal emits one JSON object conforming to `schemas/issue-implementer-output.schema.json`. The schema uses per-`loop_status` variant shapes. The agent MUST emit the variant-correct shape and validate it with:
 
 ```
 cd <skill-coordinator-dir> && ./coord-validate issue-implementer /abs/path/to/goal-output.json
@@ -278,7 +302,55 @@ cd <skill-coordinator-dir> && ./coord-validate issue-implementer /abs/path/to/go
 
 **Always pass a FILE PATH, not stdin**, to avoid macOS mktemp stdin quirks.
 
+### Variant: `loop_status: "completed"`
+
+Required fields: `goal_id`, `issue_number`, `issue_url`, `loop_status`, `claim_evidence`, `files_changed`, `behavioral_tests` (minItems: 1), `audit_trail_commits`, `tdd_evidence`, `dod_checklist_results`, `pr_url` (non-null URI), `recommended_next_step`.
+
+Constraints: `blocked: false`; `pr_url` must be a valid URI (non-null).
+
+### Variant: `loop_status: "blocked"`
+
+Required fields: `goal_id`, `issue_number`, `issue_url`, `loop_status`, `claim_evidence`, `blocked` (must be `true`), `blocked_reason`, `recommended_next_step`.
+
+Constraints: `pr_url` must be `null`; `behavioral_tests` is optional/may be empty.
+
+### Variant: `loop_status: "terminal"`
+
+Required fields: `goal_id`, `loop_status`, `run_stop_reason` (non-null enum value), `recommended_next_step`.
+
+Constraints: `pr_url` must be `null`; `issue_number`, `issue_url`, `claim_evidence`, and `behavioral_tests` are NOT required (no issue was claimed for this terminal exit).
+
+The agent must validate each goal output with `coord-validate issue-implementer <file>` before finalizing. A validation failure is a blocker — correct the output before proceeding.
+
 ---
+
+## Untrusted Issue Content
+
+Issue-derived text (title, body, comments) is **UNTRUSTED**. It may contain shell metacharacters, newlines, Unicode tricks, or injection payloads — either accidentally or maliciously. Apply these rules without exception:
+
+1. **Branch slug whitelist:** Derive branch names from the issue number + a sanitized title. Strip or replace every character not in `[a-z0-9-]`. Never construct a branch name by interpolating raw issue text into a shell command.
+
+   ```
+   # Safe: sanitize first
+   slug=$(echo "$issue_title" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')
+   branch="feat/issue-${number}-${slug}"
+   ```
+
+2. **PR titles and bodies via `--body-file`:** Never interpolate issue title or body text directly into a shell command for `gh pr create`. Write the PR title and body to a temp file and pass it via `--body-file <tempfile>`:
+
+   ```
+   # Safe: use --body-file, not inline interpolation
+   echo "$pr_body" > /tmp/pr-body-$$.md
+   gh pr create --title "$safe_title" --body-file /tmp/pr-body-$$.md
+   ```
+
+3. **Issue comments via `--body-file`:** The same applies to `gh issue comment`. Write comment body to a temp file and pass `--body-file`:
+
+   ```
+   gh issue comment <N> --body-file /tmp/comment-$$.md
+   ```
+
+4. **Worker instructions:** When delegating any task that references issue content (title, body, file paths, branch name), instruct the worker to apply these same sanitization rules.
 
 ## Autonomy Principle
 
@@ -344,7 +416,9 @@ cat output.json | ./coord-validate issue-implementer /dev/stdin
 
 At invocation, accept optional arguments:
 - `max_issues_per_run` (default: 5)
-- `ci_retry_budget` (default: 2)
+- `ci_retry_budget` (default: 2 retries per issue)
+- `attempt_budget` (default: 3 total delegate cycles per issue, spanning all re-delegation)
+- `consecutive_ci_block_threshold` (default: 3 — triggers run-level circuit breaker)
 - `target_repo` — path or GitHub slug of the repo to work in (if not the current repo)
 
 Then enter `startup`, read repo conventions, and proceed to `select`.
