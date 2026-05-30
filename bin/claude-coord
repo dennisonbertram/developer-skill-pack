@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# bin/claude-coord — core launcher for claude-groom / claude-implement shortcuts
+#
+# INVOCATION: This script must be invoked via one of its named symlinks:
+#   claude-groom      ->  runs cco --agent issue-groomer
+#   claude-implement  ->  runs cco --agent issue-implementer
+#
+# TOKEN SOURCES (resolved in order — NEVER stored in this script):
+#   1. GAMUT_AUTH_TOKEN env var (set it in your shell or session)
+#   2. ~/.config/cco-gamut/token  (readable plain-text file, chmod 600)
+#      To write: echo '<your-token>' > ~/.config/cco-gamut/token && chmod 600 ~/.config/cco-gamut/token
+#      Rotate old tokens before writing new ones.
+#
+# IMPORTANT: The token is NEVER hardcoded here. Do not add it.
+#
+# WORKING DIRECTORY: Run from inside the target repo — the agent grooms or
+# implements issues in the current repo unless a target_repo param is passed.
+#
+# PASS-THROUGH: any extra arguments are forwarded to cco, e.g.:
+#   claude-groom -p "max_issues_per_run=1"
+#   claude-implement -p "target_repo=owner/repo"
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# 1. Determine agent from invocation name
+# ---------------------------------------------------------------------------
+invocation_name="$(basename "$0")"
+
+case "$invocation_name" in
+  claude-groom)
+    agent="issue-groomer"
+    ;;
+  claude-implement)
+    agent="issue-implementer"
+    ;;
+  *)
+    echo "Usage: invoke via 'claude-groom' or 'claude-implement' symlinks." >&2
+    echo "  ln -sf $(realpath "$0") ~/.local/bin/claude-groom" >&2
+    echo "  ln -sf $(realpath "$0") ~/.local/bin/claude-implement" >&2
+    exit 2
+    ;;
+esac
+
+# ---------------------------------------------------------------------------
+# 2. Resolve the Gamut auth token — NO literal token in this script
+# ---------------------------------------------------------------------------
+token="${GAMUT_AUTH_TOKEN:-}"
+
+if [[ -z "$token" ]]; then
+  token_file="${HOME}/.config/cco-gamut/token"
+  if [[ -r "$token_file" ]]; then
+    # Strip trailing newline
+    token="$(tr -d '\n' < "$token_file")"
+  fi
+fi
+
+if [[ -z "$token" ]]; then
+  echo "Error: Gamut auth token not found." >&2
+  echo "" >&2
+  echo "Provide it one of two ways:" >&2
+  echo "" >&2
+  echo "  Option 1 — Environment variable (per-session):" >&2
+  echo "    export GAMUT_AUTH_TOKEN='<your-token>'" >&2
+  echo "" >&2
+  echo "  Option 2 — Token file (persists across sessions):" >&2
+  echo "    mkdir -p ~/.config/cco-gamut && chmod 700 ~/.config/cco-gamut" >&2
+  echo "    echo '<your-token>' > ~/.config/cco-gamut/token" >&2
+  echo "    chmod 600 ~/.config/cco-gamut/token" >&2
+  echo "" >&2
+  echo "  IMPORTANT: Rotate any old token before writing a new one." >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# 3. Launch cco — token flows through ANTHROPIC_AUTH_TOKEN, not ANTHROPIC_API_KEY
+# ANTHROPIC_API_KEY is intentionally cleared to force the proxy path.
+# ---------------------------------------------------------------------------
+exec env \
+  ANTHROPIC_BASE_URL="https://platformproxy.gamutagents.com" \
+  ANTHROPIC_AUTH_TOKEN="$token" \
+  ANTHROPIC_API_KEY= \
+  cco --agent "$agent" --dangerously-skip-permissions "$@"

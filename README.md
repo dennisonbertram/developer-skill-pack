@@ -45,6 +45,91 @@ Works with **Claude Code** and **OpenAI Codex CLI**.
 
 ---
 
+## Launcher shortcuts (claude-groom / claude-implement)
+
+`claude-groom` and `claude-implement` are shell shortcuts that invoke `cco`
+(the Claude Code sandbox wrapper) with the correct Gamut proxy settings and
+agent names — no flags to remember, no token in any script.
+
+### How it works
+
+Both names are symlinks to `bin/claude-coord` in this repo. The script reads
+your Gamut auth token at runtime from one of two secure locations (never
+hardcoded), maps its invocation name to the right agent, and `exec`s `cco`.
+
+### Install the symlinks
+
+```bash
+mkdir -p ~/.local/bin ~/.config/cco-gamut
+chmod 700 ~/.config/cco-gamut
+ln -sf /path/to/developer-skill-pack/bin/claude-coord ~/.local/bin/claude-groom
+ln -sf /path/to/developer-skill-pack/bin/claude-coord ~/.local/bin/claude-implement
+```
+
+Replace `/path/to/developer-skill-pack` with the absolute path where you cloned
+this repo (e.g. `/Users/you/develop/developer-skill-pack`).
+
+Make sure `~/.local/bin` is on your PATH. Add to `~/.zshrc` if needed:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+### Provide your token securely (after rotating any old token)
+
+**Option 1 — environment variable (per-session or in your shell profile):**
+
+```bash
+export GAMUT_AUTH_TOKEN='<your-rotated-token>'
+```
+
+**Option 2 — token file (persists across sessions):**
+
+```bash
+echo '<your-rotated-token>' > ~/.config/cco-gamut/token
+chmod 600 ~/.config/cco-gamut/token
+```
+
+The token is read at runtime. It is never written into any script or committed
+to this repo. The test suite (`test/launcher.test.sh`) will fail if a token
+literal ever appears in `bin/claude-coord`.
+
+### Usage
+
+Run from inside the target repo (agents operate on the current working
+directory unless you pass `target_repo`):
+
+```bash
+# Groom the issue backlog (all open status-less issues)
+claude-groom
+
+# Cautious first run (one issue only)
+claude-groom -p "max_issues_per_run=1"
+
+# Work the backlog to tested PRs
+claude-implement
+
+# One issue only
+claude-implement -p "max_issues_per_run=1"
+```
+
+Any extra arguments are forwarded directly to `cco`.
+
+### User-scope agent requirement
+
+`claude-groom` uses `--agent issue-groomer` and `claude-implement` uses
+`--agent issue-implementer`. These agents must be installed at user scope
+(`~/.claude/agents/`) — install them with:
+
+```bash
+npx skills add dennisonbertram/developer-skill-pack
+```
+
+Or use the plugin-namespaced form by editing `bin/claude-coord` to pass
+`--agent developer-skill-pack:issue-groomer` (after `claude plugin install`).
+
+---
+
 ## Installation
 
 ### Install as a Claude Code plugin (agents + skills)
