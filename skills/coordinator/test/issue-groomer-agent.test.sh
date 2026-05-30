@@ -837,6 +837,41 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# RT-018: FAILURE/ROLLBACK path specifically removes status:grooming AND unassigns (GF8)
+# Both the label removal AND the unassign must be documented together — neither alone is sufficient.
+# ---------------------------------------------------------------------------
+has_remove_grooming=$(grep -ciE "remove.*status:grooming|status:grooming.*remove" "$AGENT_FILE" 2>/dev/null || true)
+has_unassign=$(grep -ciE "remove.assignee|unassign" "$AGENT_FILE" 2>/dev/null || true)
+if [ "${has_remove_grooming:-0}" -gt 0 ] && [ "${has_unassign:-0}" -gt 0 ]; then
+  pass "RT-018 (GF8): FAILURE/ROLLBACK path removes status:grooming AND unassigns (both required)"
+else
+  fail "RT-018 (GF8): FAILURE/ROLLBACK path removes status:grooming AND unassigns (both required)" \
+       "remove_grooming_count=$has_remove_grooming, unassign_count=$has_unassign — need both > 0 in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# RT-019: kill precheck uses status:kill label filter (not just generic kill language)
+# Catches regression where precheck language becomes vague and doesn't specify the label.
+# ---------------------------------------------------------------------------
+if grep -qiE "status:kill.*precheck|precheck.*status:kill|--label.*status:kill.*before|status:kill.*before.*tier" "$AGENT_FILE" 2>/dev/null; then
+  pass "RT-019 (GF5): kill precheck specifically queries status:kill label before tier-1"
+else
+  fail "RT-019 (GF5): kill precheck specifically queries status:kill label before tier-1" \
+       "expected kill precheck to reference 'status:kill' label in the precheck query in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# RT-020: attempt_budget default value explicitly stated as retry-cycles (not generic cycles)
+# Catches regression where the default reverts to counting all delegate cycles.
+# ---------------------------------------------------------------------------
+if grep -qiE "attempt_budget.*default.*3.*retry|attempt_budget.*3.*retry|default.*3.*retry.*cycle|3.*retry.*cycle.*default" "$AGENT_FILE" 2>/dev/null; then
+  pass "RT-020 (GF4): attempt_budget default explicitly stated as '3 retry cycles'"
+else
+  fail "RT-020 (GF4): attempt_budget default explicitly stated as '3 retry cycles'" \
+       "expected 'attempt_budget ... default ... 3 ... retry cycle' in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""
