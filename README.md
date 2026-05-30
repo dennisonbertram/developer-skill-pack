@@ -23,6 +23,7 @@ Works with **Claude Code** and **OpenAI Codex CLI**.
 | Skill | Description |
 |-------|-------------|
 | **coordinator** | Pure-delegation control plane with a 10-phase state machine. Plans, delegates, reviews, and learns. 14 specialized agents with JSON Schema output contracts. |
+| **issue-groomer** | Autonomous backlog groomer. Claims open status-less issues, researches each deeply (codebase + product docs + external APIs), fills the target repo's issue template exhaustively, and applies `status:ready` (clear path) or `status:blocked` (exhaustively groomed, path-decision needed). Loops; WATCH mode re-checks every `poll_interval`. Sequential v1 — one instance per repo. |
 | **issue-implementer** | Autonomous backlog agent. Claims `status:ready` issues, drives each to a tested PR (red → green → regression commits), then loops until the backlog is clear or a stop condition trips. Sequential v1 — one instance per repo. |
 | **mine-transcripts** | Sweep sub-agent JSONL transcripts for novel learnings and promote the strongest to durable docs. Parallel mining with dedupe baseline. |
 
@@ -98,7 +99,15 @@ Creates GitHub issue templates, PR template, hooks, and process docs.
 
 Enters the 10-phase state machine: intake → plan → delegate → integrate → review → test → validate → close.
 
-### 3. Work the backlog autonomously
+### 3. Groom the backlog
+
+```
+--agent issue-groomer
+```
+
+Claims open status-less issues one at a time → researches each deeply → fills the issue template exhaustively → applies `status:ready` or `status:blocked` → loops until the backlog is groomed (or `max_issues_per_run` is reached). Unattended after invocation. See the [issue-groomer runbook](skills/coordinator/docs/issue-groomer-runbook.md) for preconditions, label setup, stop conditions, and first-run guidance.
+
+### 4. Work the backlog autonomously
 
 ```
 --agent issue-implementer
@@ -154,13 +163,53 @@ Generates unit and regression tests for the last fix.
 
 ---
 
-## Autonomous Backlog Implementation (issue-implementer)
+## Autonomous Backlog Implementation (issue-groomer + issue-implementer)
 
-The `issue-implementer` agent turns a groomed GitHub issue backlog into merged, tested pull requests with no human involvement between invocation and completion.
+Two autonomous agents form a continuous pipeline from raw idea to merged, tested PR — with no human involvement between invocation and completion.
 
-**What it does:** Claims the oldest `status:ready` issue → grounds itself against the codebase → delegates a TDD worker (red → green → regression commits) → runs review and test passes → opens a PR whose body contains the full DoD checklist, audit-trail commit links, and a collapsible machine-readable report → closes the issue → loops to the next ready issue. Stops when the backlog is clear, `max_issues_per_run` is reached, or a stop condition trips.
+### Pipeline: Groomer → Implementer
 
-**How to start:**
+```
+open (no status)
+  → [issue-groomer]     status:grooming
+  → [issue-groomer]     status:ready         ← HANDOFF LABEL
+                     OR status:blocked        (exhaustively groomed, path-decision needed)
+
+status:ready
+  → [issue-implementer] status:in-progress
+  → PR (Closes #N)      → merged
+```
+
+`status:ready` is the handoff label between the two agents. The groomer writes it; the implementer reads it.
+
+| Agent | Trigger | Output |
+|-------|---------|--------|
+| `issue-groomer` | Open issues with no `status:*` label | `status:ready` (claimable) or `status:blocked` (groomed, decision pending) |
+| `issue-implementer` | Issues labeled `status:ready` | Tested PR with red → green → regression audit trail; issue closed on merge |
+
+**Blocked path:** `status:blocked` means the issue is fully groomed — not half-done. A genuine product/path decision needs a human (or review agent) before implementation can proceed. Once resolved, the issue transitions back to `status:ready` and the implementer picks it up.
+
+### issue-groomer
+
+Claims status-less issues one at a time → researches each deeply (codebase + product docs + external APIs) → fills the issue template exhaustively with behavior contract, verified file paths, assumptions, and alternatives → applies `status:ready` or `status:blocked` → loops until the backlog is groomed. Unattended after invocation.
+
+```
+--agent issue-groomer
+```
+
+For a cautious first run (one issue only):
+
+```
+--agent issue-groomer max_issues_per_run=1
+```
+
+**V1 constraint:** sequential and single-instance only. Never run two issue-groomer instances against the same repo simultaneously.
+
+For the full runbook — preconditions, exact `gh label create` commands, stop conditions, WATCH mode, kill switch, and first-run guidance — see [`skills/coordinator/docs/issue-groomer-runbook.md`](skills/coordinator/docs/issue-groomer-runbook.md).
+
+### issue-implementer
+
+Claims the oldest `status:ready` issue → grounds itself against the codebase → delegates a TDD worker (red → green → regression commits) → runs review and test passes → opens a PR whose body contains the full DoD checklist, audit-trail commit links, and a collapsible machine-readable report → closes the issue → loops to the next ready issue. Stops when the backlog is clear, `max_issues_per_run` is reached, or a stop condition trips.
 
 ```
 --agent issue-implementer
@@ -172,7 +221,7 @@ For a cautious first run (one issue only):
 --agent issue-implementer max_issues_per_run=1
 ```
 
-**V1 constraint:** sequential and single-instance only. Never run two issue-implementer instances against the same repo simultaneously — the claim is not truly atomic and two concurrent instances can double-pick the same issue.
+**V1 constraint:** sequential and single-instance only. Never run two issue-implementer instances against the same repo simultaneously.
 
 For the full runbook — preconditions, label setup with exact `gh label create` commands, stop conditions, kill switch, and first-run guidance — see [`skills/coordinator/docs/issue-implementer-runbook.md`](skills/coordinator/docs/issue-implementer-runbook.md).
 
