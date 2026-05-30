@@ -251,6 +251,10 @@ Record each DoR item as pass/fail/na in `dor_checklist_results`.
 
 Delegate to a **scribe** + **worker** for ALL mutations (worker-investigation is read-only):
 
+**Mutation ordering rule — the status-label swap is ALWAYS the final mutation.** For both the ready and blocked paths, the body edit comes first, the blocked comment (if any) comes second, and the label swap (status:grooming → status:ready/blocked) is last. This ordering guarantees that if anything fails before the final swap, the issue still carries only `status:grooming`, which the rollback correctly removes. A comment-post failure after a premature label swap would leave the issue labeled `status:blocked` while the agent emits `groom_status:failed` — recreating the mislabeled-blocked class this ordering eliminates.
+
+**For `groom_status: "ready"` — three-step write (body edit first, then swap):**
+
 1. **Write the groomed issue body via scribe:**
 
    Spawn a **scribe** to write the groomed body to a temp file using the Write primitive:
@@ -259,23 +263,28 @@ Delegate to a **scribe** + **worker** for ALL mutations (worker-investigation is
    (body content from draft phase — never interpolated into shell commands)
    ```
 
-   Then spawn a **worker** to apply the body:
+   Then spawn a **worker** to apply the body (body edit before label swap):
    ```bash
    gh issue edit <N> --repo "$target_repo" --body-file /tmp/groomed-body-<N>.md
    ```
 
    **NEVER use a shell heredoc (`<<'EOF'`) for untrusted content.** An issue body containing an `EOF` line can break out of the heredoc, creating an injection vector. Always delegate file creation to the scribe (Write primitive), then have a worker run `gh issue edit/comment --body-file <that-file>`.
 
-2. **Apply the status label via worker:**
+2. **Apply the status:ready label swap via worker — FINAL mutation for the ready path:**
    ```bash
-   # For ready:
+   # Label swap is the final mutation — only after body edit succeeds
    gh issue edit <N> --repo "$target_repo" --remove-label "status:grooming" --add-label "status:ready"
-
-   # For blocked:
-   gh issue edit <N> --repo "$target_repo" --remove-label "status:grooming" --add-label "status:blocked"
    ```
 
-3. **For `groom_status: "blocked"` only — post a comment explaining the decision needed:**
+**For `groom_status: "blocked"` — four-step write (body edit, then comment, then swap as final mutation):**
+
+1. **Write the groomed issue body via scribe** (same as ready path above — body file before label swap):
+   ```
+   scribe writes: /tmp/groomed-body-<N>.md
+   ```
+   Worker applies: `gh issue edit <N> --repo "$target_repo" --body-file /tmp/groomed-body-<N>.md`
+
+2. **Post the decision-needed comment BEFORE the label swap:**
 
    Spawn a **scribe** to write the comment body file:
    ```
@@ -288,12 +297,18 @@ Delegate to a **scribe** + **worker** for ALL mutations (worker-investigation is
    [The groomer's recommendation for which path to take]
    ```
 
-   Then spawn a **worker** to post the comment:
+   Then spawn a **worker** to post the comment (comment before swap):
    ```bash
    gh issue comment <N> --repo "$target_repo" --body-file /tmp/blocked-comment-<N>.md
    ```
 
    **ALWAYS use scribe to write the file, then `--body-file` in the worker. NEVER interpolate issue-derived text into the shell command.**
+
+3. **Apply the status:blocked label swap via worker — FINAL mutation for the blocked path (swap after comment):**
+   ```bash
+   # Label swap after comment — swap is the final mutation; only runs if comment succeeded
+   gh issue edit <N> --repo "$target_repo" --remove-label "status:grooming" --add-label "status:blocked"
+   ```
 
 4. Increment `issues_completed_this_run`.
 
@@ -314,10 +329,15 @@ On ANY failure after claim — ground error, draft error, write error, budget ex
    This issue has been released back to status-less so it can be retried.
    ```
 
-2. Spawn a **worker** to:
+2. Spawn a **worker** to defensively strip ALL grooming and partial-apply labels, then unassign, then post the comment. The rollback removes `status:grooming`, `status:blocked`, AND `status:ready` to guarantee the issue lands genuinely status-less regardless of how far the write phase got before failing:
    ```bash
-   # Release the claim — remove grooming label and unassign
-   gh issue edit <N> --repo "$target_repo" --remove-label "status:grooming" --remove-assignee @me
+   # Defensive strip — remove status:grooming AND any partially-applied status:blocked/status:ready
+   # so the issue is guaranteed to be status-less and retryable after rollback
+   gh issue edit <N> --repo "$target_repo" \
+     --remove-label "status:grooming" \
+     --remove-label "status:blocked" \
+     --remove-label "status:ready" \
+     --remove-assignee @me
    # Post the failure comment
    gh issue comment <N> --repo "$target_repo" --body-file /tmp/failure-comment-<N>.md
    ```
@@ -325,7 +345,7 @@ On ANY failure after claim — ground error, draft error, write error, budget ex
 3. Emit `groom_status: "failed"` with a populated `failure_reason` (required field — must not be empty). Required fields for the `failed` variant: `goal_id`, `groom_status`, `issue_number`, `issue_url`, `failure_reason`, `recommended_next_step`.
 
 **Key rules:**
-- Releasing the claim (removing `status:grooming` + unassigning) returns the issue to status-less so it can be retried on the next run.
+- The defensive rollback removes `status:grooming`, `status:blocked`, AND `status:ready` — this ensures `groom_status:failed` ALWAYS leaves the issue genuinely status-less (no residual status:blocked or status:ready) and retryable on the next run, regardless of how far the write phase progressed before failure.
 - Operational/tooling failures are NEVER a `blocked` reason. `blocked` is reserved strictly for genuine product/path DECISIONS — situations where a human must make a strategic choice. An operational limit (budget exhausted, tool error, network failure) always routes to `groom_status:failed`, never to `groom_status:blocked`.
 - A single-issue failure is NOT a run-stop event — continue to `select` for the next issue.
 
@@ -406,11 +426,13 @@ on:
 
 Labels must exist in the target repo before this agent can run.
 
-```
-gh label create "status:grooming"  --color "BFD4F2" --description "Currently being groomed"
-gh label create "status:ready"     --color "0E8A16" --description "Groomed and ready for autonomous implementation"
-gh label create "status:blocked"   --color "D93F0B" --description "Exhaustively groomed but a path-decision needs a human"
-gh label create "status:kill"      --color "000000" --description "Kill switch — stop issue-groomer at this issue"
+```bash
+# Run these once against the target repo before first use.
+# Always scope with --repo "$target_repo" to match the convention used throughout this agent.
+gh label create "status:grooming"  --repo "$target_repo" --color "BFD4F2" --description "Currently being groomed"
+gh label create "status:ready"     --repo "$target_repo" --color "0E8A16" --description "Groomed and ready for autonomous implementation"
+gh label create "status:blocked"   --repo "$target_repo" --color "D93F0B" --description "Exhaustively groomed but a path-decision needs a human"
+gh label create "status:kill"      --repo "$target_repo" --color "000000" --description "Kill switch — stop issue-groomer at this issue"
 ```
 
 **Full pipeline label lifecycle (groomer → implementer):**
