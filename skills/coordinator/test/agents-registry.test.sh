@@ -257,6 +257,53 @@ else
        "empty schemas: ${empty_schemas[*]}"
 fi
 
+# ---------------------------------------------------------------------------
+# REGRESSION RT-005: SKILL.md model references for all four reconciled agents.
+# Each added row must document the model (Sonnet/Opus). If someone later edits
+# the SKILL.md table and strips a model column, this catches the regression.
+# distiller => Opus, evidence-auditor => Opus, knowledge-packager => Sonnet,
+# researcher => Sonnet.
+# ---------------------------------------------------------------------------
+check_skill_model() {
+  local agent="$1"
+  local expected_model="$2"
+  local row
+  row=$(grep "$agent" "$SKILL_FILE" 2>/dev/null | head -1)
+  if echo "$row" | grep -qi "$expected_model"; then
+    pass "RT-005: SKILL.md row for '$agent' includes model '$expected_model'"
+  else
+    fail "RT-005: SKILL.md row for '$agent' includes model '$expected_model'" \
+         "row: $row — expected to contain '$expected_model'"
+  fi
+}
+
+check_skill_model "distiller"        "Opus"
+check_skill_model "evidence-auditor" "Opus"
+check_skill_model "knowledge-packager" "Sonnet"
+check_skill_model "researcher"       "Sonnet"
+
+# ---------------------------------------------------------------------------
+# REGRESSION RT-006: schema count >= agent count minus exempt count.
+# If agent files are added without schemas, this fires.
+# Total agents = 20, exempt = 1 (coordinator), so schemas >= 19.
+# ---------------------------------------------------------------------------
+total_schema_files=$(ls "$SCHEMAS_DIR"/*-output.schema.json 2>/dev/null | wc -l | tr -d ' ')
+total_agent_files=$(ls "$AGENTS_DIR"/*.md 2>/dev/null | wc -l | tr -d ' ')
+# Count exempt agents
+exempt_count=0
+for exempt in $SCHEMA_EXEMPT; do
+  if [ -f "$AGENTS_DIR/${exempt}.md" ]; then
+    exempt_count=$((exempt_count + 1))
+  fi
+done
+expected_min_schemas=$((total_agent_files - exempt_count))
+if [ "$total_schema_files" -ge "$expected_min_schemas" ]; then
+  pass "RT-006: schema file count ($total_schema_files) >= agent count minus exempt ($expected_min_schemas)"
+else
+  fail "RT-006: schema file count ($total_schema_files) >= agent count minus exempt ($expected_min_schemas)" \
+       "expected at least $expected_min_schemas schemas; got $total_schema_files — an agent may be missing its schema"
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 echo ""
