@@ -428,6 +428,86 @@ else
        "expected exit 1, got exit $rc — output: $out"
 fi
 
+# --- RT-G06: failed output missing issue_number fails (exit 1) ---
+# When groom_status:failed, issue_number is required by the if/then block.
+# If the failed if/then were removed or its required list shortened, this
+# missing field would not be caught. Tests that the failed variant's required
+# set includes issue_number (operational failures occur against a specific issue).
+FAILED_NO_ISSUE_NUM="$TMPDIR_TEST/failed-no-issue-number.json"
+cat > "$FAILED_NO_ISSUE_NUM" <<'ENDJSON'
+{
+  "goal_id": "goal-regression-06",
+  "groom_status": "failed",
+  "issue_url": "https://github.com/acme/myapp/issues/77",
+  "failure_reason": "Budget exhausted.",
+  "recommended_next_step": "Retry."
+}
+ENDJSON
+out=$(cd "$COORD_DIR" && ./coord-validate issue-groomer "$FAILED_NO_ISSUE_NUM" 2>&1); rc=$?
+if [ "$rc" -eq 1 ]; then
+  pass "RT-G06: failed output missing issue_number -> exit 1 (failed if/then enforcement)"
+else
+  fail "RT-G06: failed output missing issue_number -> exit 1 (failed if/then enforcement)" \
+       "expected exit 1, got exit $rc — output: $out"
+fi
+
+# --- RT-G07: failed is NOT accepted as a blocked substitute (blocked still needs alternatives) ---
+# A failed output cannot sneak past blocked constraints by using groom_status:blocked
+# without alternatives_considered. This test re-validates BT-G05 from the other direction:
+# the failed variant's existence must not relax blocked's minItems:1 enforcement.
+# If the enum were collapsed or the blocked if/then removed, this would incorrectly pass.
+BLOCKED_NO_ALT_2="$TMPDIR_TEST/blocked-no-alt-regression.json"
+cat > "$BLOCKED_NO_ALT_2" <<'ENDJSON'
+{
+  "goal_id": "goal-regression-07",
+  "groom_status": "blocked",
+  "issue_number": 33,
+  "issue_url": "https://github.com/acme/myapp/issues/33",
+  "claim_evidence": { "label_swap_confirmed": true, "self_assign_confirmed": true },
+  "template_used": "feature-slice",
+  "codebase_grounding": {
+    "verified_paths": ["apps/api/src/routes/auth.ts"],
+    "docs_read": ["docs/context/product-vision.md"]
+  },
+  "dor_checklist_results": [{ "item": "DOR check", "status": "pass" }],
+  "assumptions_made": [{ "assumption": "Assumption.", "rationale": "Reason." }],
+  "alternatives_considered": [],
+  "ui_ux_notes": "None.",
+  "escalation_reason": "A real decision is needed.",
+  "recommended_next_step": "Escalate to product."
+}
+ENDJSON
+out=$(cd "$COORD_DIR" && ./coord-validate issue-groomer "$BLOCKED_NO_ALT_2" 2>&1); rc=$?
+if [ "$rc" -eq 1 ]; then
+  pass "RT-G07: blocked still requires alternatives_considered minItems:1 after failed variant added -> exit 1"
+else
+  fail "RT-G07: blocked still requires alternatives_considered minItems:1 after failed variant added -> exit 1" \
+       "expected exit 1, got exit $rc — output: $out"
+fi
+
+# --- RT-G08: failed variant in groom_status enum (not unknown) validates -> exit 0 ---
+# Directly tests that 'failed' was added to the enum. If the enum were reverted to
+# [ready, blocked, skipped, terminal], this test would fail (exit 1) because 'failed'
+# would be an invalid enum value. This is the pure enum-membership regression test.
+FAILED_ENUM_CHECK="$TMPDIR_TEST/failed-enum-only.json"
+cat > "$FAILED_ENUM_CHECK" <<'ENDJSON'
+{
+  "goal_id": "goal-regression-08",
+  "groom_status": "failed",
+  "issue_number": 99,
+  "issue_url": "https://github.com/acme/myapp/issues/99",
+  "failure_reason": "Infrastructure timeout after 60 seconds.",
+  "recommended_next_step": "Retry after investigating infra connectivity."
+}
+ENDJSON
+out=$(cd "$COORD_DIR" && ./coord-validate issue-groomer "$FAILED_ENUM_CHECK" 2>&1); rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "RT-G08: groom_status:failed is a valid enum value -> exit 0 (enum membership)"
+else
+  fail "RT-G08: groom_status:failed is a valid enum value -> exit 0 (enum membership)" \
+       "expected exit 0, got exit $rc — output: $out"
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 echo ""

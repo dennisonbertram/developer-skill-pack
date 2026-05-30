@@ -7,7 +7,7 @@ These checks verify that the schema enforces per-`groom_status` variant constrai
 and would catch future regressions if field requirements, enum values, or conditional
 blocks were loosened or removed.
 
-## Results (all verified, 2026-05-30)
+## Results (all verified, 2026-05-30; updated with failed-variant, 2026-05-30)
 
 | Check | Mutation | Expected | Result |
 |-------|----------|----------|--------|
@@ -15,14 +15,18 @@ blocks were loosened or removed.
 | PASS-2 | Valid blocked fixture (no mutation) | exit 0 | OK, Exit 0 |
 | PASS-3 | Valid terminal fixture (no mutation) | exit 0 | OK, Exit 0 |
 | PASS-4 | Minimal skipped shape (goal_id, groom_status, issue_number, issue_url, skip_reason, recommended_next_step) | exit 0 | OK, Exit 0 |
+| PASS-5 | Valid failed fixture (goal_id, groom_status, issue_number, issue_url, failure_reason, recommended_next_step — no alternatives/codebase_grounding) | exit 0 | OK, Exit 0 |
 | FAIL-1 | blocked output missing `escalation_reason` | exit 1 | FAIL `escalation_reason` is required |
 | FAIL-2 | blocked output with `alternatives_considered: []` | exit 1 | FAIL minItems: 1 |
 | FAIL-3 | terminal output missing `run_stop_reason` | exit 1 | FAIL `run_stop_reason` is required |
 | FAIL-4 | ready output missing `codebase_grounding` | exit 1 | FAIL `codebase_grounding` is required |
 | FAIL-5 | `run_stop_reason: "unknown_stop_reason_value"` | exit 1 | FAIL not one of enum values |
 | FAIL-6 | skipped output missing `skip_reason` | exit 1 | FAIL `skip_reason` is required |
-| FAIL-7 | `groom_status: "unknown_value"` | exit 1 | FAIL not one of [ready,blocked,skipped,terminal] |
+| FAIL-7 | `groom_status: "unknown_value"` | exit 1 | FAIL not one of [ready,blocked,skipped,terminal,failed] |
 | FAIL-8 | blocked output with `escalation_reason: ""` | exit 1 | FAIL minLength: 1 |
+| FAIL-9 | failed output missing `failure_reason` | exit 1 | FAIL `failure_reason` is required |
+| FAIL-10 | failed output with `failure_reason: ""` | exit 1 | FAIL minLength: 1 |
+| FAIL-11 | failed output missing `issue_number` | exit 1 | FAIL `issue_number` is required |
 
 ## The F1 lesson: flat required lists break terminal/skipped emittability
 
@@ -64,6 +68,18 @@ goal_id, groom_status, issue_number, issue_url, skip_reason, recommended_next_st
 ```
 goal_id, groom_status, run_stop_reason (enum: max_issues_reached|kill_switch|no_status_less_issues|watch_poll_wait), recommended_next_step
 ```
+
+### groom_status: "failed" (canonical reference for TASK-G5 handoff)
+```
+goal_id, groom_status, issue_number, issue_url, failure_reason (minLength:1), recommended_next_step
+```
+NOT required (and must not be required): alternatives_considered, codebase_grounding,
+claim_evidence, template_used, dor_checklist_results, assumptions_made, ui_ux_notes,
+escalation_reason, skip_reason, run_stop_reason.
+
+The `failed` variant is for operational/budget exhaustion ONLY — it is not a product
+decision. Use `blocked` when a genuine human product decision is needed (that variant
+requires alternatives_considered minItems:1 to prove exhaustive grooming happened).
 
 ## run_stop_reason semantics
 
