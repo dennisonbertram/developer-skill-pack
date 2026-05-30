@@ -529,6 +529,74 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# RT-011: subagent table still contains worker-refactor and worker-test rows
+# The Subagent Team table documents available agents — worker-refactor and
+# worker-test are real agents even though they're deferred from routing. If
+# someone removes them from the subagent team table entirely, this fails.
+# ---------------------------------------------------------------------------
+if grep -qE "\*\*worker-refactor\*\*|\bworker-refactor\b" "$AGENT_FILE" 2>/dev/null && \
+   grep -qE "\*\*worker-test\*\*|\bworker-test\b" "$AGENT_FILE" 2>/dev/null; then
+  pass "RT-011: subagent table still documents worker-refactor and worker-test agents"
+else
+  fail "RT-011: subagent table still documents worker-refactor and worker-test agents" \
+       "expected worker-refactor and worker-test to remain in Subagent Team table in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# RT-012: Deferred note exists AND the file names worker-refactor AND worker-test
+# The Deferred note must be present (BT-026 checks this), and the worker names
+# worker-refactor and worker-test must appear (the note uses backtick names).
+# Checked independently because the note spans multiple lines and a single-line
+# grep can't match across them; both conditions together confirm the note is
+# actionable.
+# ---------------------------------------------------------------------------
+if grep -qiE "Deferred.*refactor.test|deferred.*refactor.*test" "$AGENT_FILE" 2>/dev/null && \
+   grep -qE "worker-refactor" "$AGENT_FILE" 2>/dev/null && \
+   grep -qE "worker-test" "$AGENT_FILE" 2>/dev/null; then
+  pass "RT-012: Deferred note exists and file names worker-refactor and worker-test specifically"
+else
+  fail "RT-012: Deferred note exists and file names worker-refactor and worker-test specifically" \
+       "expected Deferred note + worker-refactor + worker-test all present in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# RT-013: close phase PR body includes Closes #<issue_number>
+# A PR that doesn't include a closing reference won't auto-close the issue.
+# If the Closes reference is removed from the PR-body spec, this fails.
+# ---------------------------------------------------------------------------
+if grep -qiE "Closes #|Closes #<issue_number>|Closes.*issue_number" "$AGENT_FILE" 2>/dev/null; then
+  pass "RT-013: close phase PR body spec includes 'Closes #<issue_number>'"
+else
+  fail "RT-013: close phase PR body spec includes 'Closes #<issue_number>'" \
+       "expected 'Closes #<issue_number>' in close phase PR body spec in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# RT-014: close phase PR body spec references audit_trail_commits
+# The PR body must include the audit-trail commits (red/green/regression links).
+# If this is removed from the spec, the PR loses its TDD audit trail.
+# ---------------------------------------------------------------------------
+if grep -qiE "audit_trail_commits|red.*green.*regression.*commit|commit.*red.*green.*regression" "$AGENT_FILE" 2>/dev/null; then
+  pass "RT-014: close phase PR body spec references audit_trail_commits"
+else
+  fail "RT-014: close phase PR body spec references audit_trail_commits" \
+       "expected audit_trail_commits reference in close phase PR body spec in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# RT-015: stale coord-validate path note is absent from regression-notes.md
+# The old note claiming coord-validate path resolution was broken/out-of-scope
+# must not be present. If someone re-adds it, this regression test fails.
+# ---------------------------------------------------------------------------
+REGRESSION_NOTES="$COORD_DIR/schemas/fixtures/issue-implementer-regression-notes.md"
+if grep -qiE "out of scope.*coord-validate|coord-validate.*out of scope|coord-validate.*broken.*scope|path.*resolution.*broken|SCHEMAS_DIR.*cannot find|cannot find.*schema.*coord-validate" "$REGRESSION_NOTES" 2>/dev/null; then
+  fail "RT-015: stale coord-validate path-resolution 'out of scope/broken' note is absent" \
+       "found stale note claiming coord-validate path resolution is broken — should have been removed in $REGRESSION_NOTES"
+else
+  pass "RT-015: stale coord-validate path-resolution 'out of scope/broken' note is absent"
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""
