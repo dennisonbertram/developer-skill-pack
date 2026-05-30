@@ -13,7 +13,7 @@ For each status-less issue, the groomer:
 1. **Claims** the issue (adds `status:grooming`, self-assigns).
 2. **Grounds itself** against the codebase, product docs, and external API docs — reading real file paths, integration points, and user intent.
 3. **Drafts** an exhaustive issue body that follows the target repo's issue template: testable behavior contract, verified file paths, integration spec, in/out-of-scope, regression risks, DoD checklist, documented assumptions, alternatives considered, UI/UX notes.
-4. **Applies** `status:ready` (clear implementation path — claimable by the implementer immediately) or `status:blocked` (exhaustively groomed, a genuine product/path decision needs a human).
+4. **Applies** `status:ready` (clear implementation path — claimable by the implementer immediately), `status:blocked` (exhaustively groomed, a genuine product/path decision needs a human), or on operational failure: releases the claim (`status:grooming` removed, unassigned) and emits `groom_status:failed` so the issue is auto-retried next run.
 5. **Loops** — returns to select the next status-less issue.
 
 In WATCH mode the groomer re-checks for new issues every `poll_interval` after the backlog is exhausted.
@@ -37,10 +37,10 @@ All arguments are optional. Defaults are shown.
 | Argument | Default | Description |
 |----------|---------|-------------|
 | `max_issues_per_run` | `5` | Maximum goals completed before the run stops cleanly. |
-| `attempt_budget` | `3` | Total delegate cycles per issue across all phases. If exhausted, the issue is marked `status:blocked` (with budget-exhaustion reason) and the run continues to the next issue. |
+| `attempt_budget` | `3` | Maximum RETRY/re-delegation cycles per issue. Counts only retries after a failure — the normal happy-path (claim → ground → draft → readiness-gate → write) does NOT consume it. If exhausted, the groomer executes the FAILURE/ROLLBACK path (`groom_status:failed`), releases the claim, and continues to the next issue. |
 | `poll_interval` | `15m` | Time between re-checks in WATCH mode after the backlog is exhausted. |
-| `target_repo` | _(current repo)_ | Path or GitHub slug of the repo to work in. |
-| `watch` | `false` | If true, enter WATCH mode after backlog exhaustion — sleep `poll_interval`, then re-check for new issues. |
+| `target_repo` | _(current repo)_ | Path or GitHub slug of the repo to work in. When set, every `gh issue list / view / edit / comment` invocation carries `--repo "$target_repo"` (for slugs) or `cd`s into the path (for local paths). All gh operations are scoped to `target_repo` — a slug invocation acts on that repo, not the current working directory. |
+| `watch` | `false` | WATCH mode activates ONLY when `watch: true` is explicitly passed. The default is one-shot/terminating. If true, after backlog exhaustion the groomer sleeps `poll_interval` and re-checks for new issues. |
 
 ### Examples
 
@@ -102,6 +102,7 @@ open (no status)
   → [GROOMER claims]    status:grooming
   → [GROOMER writes]    status:ready        (clear path — claimable by implementer)
                      OR status:blocked      (exhaustively groomed, path-decision needed)
+                     OR status:grooming removed + unassigned   (failed — operational error, retryable next run)
 
 status:ready
   → [IMPLEMENTER claims] status:in-progress
@@ -119,7 +120,7 @@ status:blocked
 | `status:ready` | issue-groomer (write phase) | Claimable by the implementer — behavior contract, DoD, and full spec are complete. |
 | `status:blocked` | issue-groomer (write phase) | Exhaustively groomed but a genuine product/path decision needs a human before implementation can proceed. The issue body contains full analysis and a recommendation. |
 | `status:in-progress` | issue-implementer | Currently being implemented (applied by the implementer, not the groomer). |
-| `status:kill` | Human or any agent | Emergency stop — the groomer will not claim this issue or any subsequent one. |
+| `status:kill` | Human or any agent | Emergency stop — a repo-wide precheck at the start of each `select` cycle halts the run immediately if ANY open issue carries this label. Apply to any issue to stop the groomer cleanly. |
 
 ---
 
@@ -138,7 +139,15 @@ For each groomed issue the agent rewrites the issue body to include:
 
 **`status:ready`** means the implementer can pick up the issue without any human interaction. The groomer has made every resolvable decision.
 
-**`status:blocked`** means the issue is **fully groomed** — not half-done. It means a genuine strategic product/path decision remains that requires human input. The issue body contains the complete analysis, all alternatives with pros/cons, and the groomer's recommendation. The blocked issue is as ready as it can be without that decision.
+**`status:blocked`** means the issue is **fully groomed** — not half-done. It means a genuine strategic product/path decision remains that requires human input. The issue body contains the complete analysis, all alternatives with pros/cons, and the groomer's recommendation. The blocked issue is as ready as it can be without that decision. `blocked` is RARE and reserved for genuine strategic choices — never for technical gaps, incomplete specs, or operational failures.
+
+**`groom_status:failed`** (fifth outcome) means an operational or tooling failure occurred — a tool error, network failure, or `attempt_budget` (retry cycle) exhaustion. This is NOT a product decision. On `failed`, the groomer releases the claim: it removes `status:grooming` and unassigns the issue, returning it to status-less so the next run can retry it automatically. `failed` issues are NOT human-gated. The key distinction:
+
+| Outcome | Cause | Human gate? | Issue state after |
+|---------|-------|-------------|-------------------|
+| `status:ready` | Clear implementation path | No | Claimable by implementer |
+| `status:blocked` | Genuine product/path DECISION needed | Yes | Awaits human resolution |
+| `groom_status:failed` | Operational failure or retry exhaustion | No | Returns to status-less; auto-retried next run |
 
 ---
 
@@ -159,13 +168,15 @@ If uncertain whether to block, the groomer defaults to `status:ready` with thoro
 
 ## WATCH Mode
 
+WATCH mode activates **ONLY when `watch: true` is explicitly passed** at invocation. It does NOT activate implicitly. The default is one-shot/terminating.
+
 When the groomable backlog is empty, behavior depends on whether WATCH mode is active:
 
 **One-shot mode (default, `watch=false`):**
 The groomer emits a permanent terminal output with `run_stop_reason: "no_status_less_issues"` and exits. No re-check is scheduled.
 
 **WATCH mode (`watch=true`):**
-The groomer emits a transient terminal output with `run_stop_reason: "watch_poll_wait"` (this is NOT a permanent stop), sleeps `poll_interval` (default: 15m), then returns to `select` to check for new issues.
+The groomer emits a transient terminal output with `run_stop_reason: "watch_poll_wait"` (this is NOT a permanent stop), sleeps `poll_interval` (default: 15m), then **resets per-run state** (`reviewed_ready_this_run` to empty, `issues_completed_this_run` to 0), and returns to `select` to check for new issues. Each wake-up cycle is a fresh cycle — state reset ensures ready tickets that may have changed are re-reviewed and prevents within-cycle spin.
 
 Downstream consumers must distinguish `watch_poll_wait` (transient — re-check coming) from `no_status_less_issues` (permanent — backlog exhausted in one-shot mode).
 
@@ -189,11 +200,25 @@ The run ends and emits `groom_status: "terminal"` when any of the following trip
 | `run_stop_reason` | When |
 |-------------------|------|
 | `max_issues_reached` | Completed `max_issues_per_run` goals (default: 5); stopping cleanly. Re-run to continue. |
-| `kill_switch` | Candidate issue carried `status:kill`; stopping cleanly. Human intervention required before re-run. |
+| `kill_switch` | A repo-wide precheck at the START of each `select` cycle found an open issue carrying `status:kill` — OR a TOCTOU re-fetch before claim found `status:kill`. Stops immediately, terminally. Human intervention required before re-run. The precheck runs before any candidate is fetched, so `status:kill` on ANY open issue halts the run — not only the next candidate. |
 | `no_status_less_issues` | **Permanent terminal (one-shot mode):** backlog is exhausted — no more status-less issues to groom. No re-check scheduled. |
 | `watch_poll_wait` | **Transient terminal (WATCH mode):** groomer is entering a sleep cycle. Re-check will run after `poll_interval`. This is NOT a permanent stop. |
 
-A per-issue attempt budget exhaustion (`attempt_budget` exceeded for a single issue) is NOT a run-stop event. The groomer marks that issue `status:blocked` with the budget-exhaustion reason and immediately continues to the next issue.
+### `groom_status: "failed"` — per-issue operational failure (NOT a run-stop event)
+
+`groom_status: "failed"` is emitted when an OPERATIONAL or tooling failure occurs for a single issue — a tool error, network failure, or `attempt_budget` (retry cycle) exhaustion. This is distinct from `blocked` (which requires a genuine product decision) and from `terminal` (which stops the whole run).
+
+On `failed`, the groomer executes the FAILURE/ROLLBACK path:
+1. Removes `status:grooming` and unassigns the issue — returning it to status-less.
+2. Posts a comment explaining the failure.
+3. Emits `groom_status: "failed"` with a `failure_reason`.
+4. Continues to the next issue (NOT a run-stop event).
+
+The issue is automatically retried on the next run without human intervention.
+
+### `attempt_budget` — retry cycles only
+
+`attempt_budget` (default: 3) counts ONLY retry/re-delegation cycles per issue — not first-pass phase delegations. The normal happy path (claim → ground → draft → readiness-gate → write) does NOT consume it. The budget increments only when the agent returns to a prior phase after a failure. If exhausted: execute the FAILURE/ROLLBACK path, emit `groom_status: "failed"`, and continue to the next issue. Do NOT emit `groom_status: "blocked"` for budget exhaustion — `blocked` requires a genuine product decision, not an operational limit.
 
 ---
 
@@ -209,7 +234,19 @@ A per-issue attempt budget exhaustion (`attempt_budget` exceeded for a single is
 5. Inspect the groomed issue body — verify the behavior contract, assumptions, alternatives, DoD checklist, and verified file paths.
 6. Once satisfied with the output quality, remove the `max_issues_per_run=1` override and let the agent sweep the full backlog.
 
-**Kill switch as emergency stop:** if the agent is mid-run and you need it to stop after the current issue completes, apply the `status:kill` label to any issue in the queue. The agent checks for it at the next `select` phase and exits cleanly.
+**Kill switch as emergency stop:** if the agent is mid-run and you need it to stop, apply the `status:kill` label to any open issue in the repo. At the start of the **next `select` cycle** (before any candidate is fetched), the agent runs a repo-wide precheck for any open `status:kill` issue and stops immediately with `run_stop_reason: "kill_switch"`. The kill switch applies to the whole run — not just the next candidate — because the precheck scans all open issues in the repo, not just the pending queue.
+
+---
+
+## Startup Behavior
+
+At startup, before processing any issues, the groomer performs a **stale-claim sweep**: it queries for open issues labeled `status:grooming` that are assigned to the agent and older than a threshold (e.g., 30 minutes). For each stale claim found, it removes the `status:grooming` label, unassigns the issue, and posts a comment noting "Released stale grooming claim from prior interrupted run." This sweep prevents transient failures (network errors, interrupted runs) from permanently stranding issues in the `status:grooming` state.
+
+---
+
+## Known Limitations (V1)
+
+- **Pagination:** the `select` phase uses `--limit 200` (or `--limit 9999` for larger backlogs), but very large repos with more than 200 open issues may not see all issues in a single run. This is a documented v1 constraint. For backlogs exceeding 200 open issues, raise the `--limit` value or document the limitation explicitly. The agent will process the oldest issues within the limit first.
 
 ---
 

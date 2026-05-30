@@ -174,6 +174,7 @@ open (no status)
   → [issue-groomer]     status:grooming
   → [issue-groomer]     status:ready         ← HANDOFF LABEL
                      OR status:blocked        (exhaustively groomed, path-decision needed)
+                     OR status:grooming removed + unassigned  (failed — operational, auto-retried next run)
 
 status:ready
   → [issue-implementer] status:in-progress
@@ -184,10 +185,12 @@ status:ready
 
 | Agent | Trigger | Output |
 |-------|---------|--------|
-| `issue-groomer` | Open issues with no `status:*` label | `status:ready` (claimable) or `status:blocked` (groomed, decision pending) |
+| `issue-groomer` | Open issues with no `status:*` label | `status:ready` (claimable), `status:blocked` (groomed, decision pending), or `groom_status:failed` (operational error, auto-retried) |
 | `issue-implementer` | Issues labeled `status:ready` | Tested PR with red → green → regression audit trail; issue closed on merge |
 
 **Blocked path:** `status:blocked` means the issue is fully groomed — not half-done. A genuine product/path decision needs a human (or review agent) before implementation can proceed. Once resolved, the issue transitions back to `status:ready` and the implementer picks it up.
+
+**Failed path:** `groom_status:failed` is an OPERATIONAL outcome — a tool error, network failure, or retry-budget exhaustion. It is NOT a product decision and requires NO human action. The groomer releases the claim (removes `status:grooming`, unassigns) and the issue returns to status-less for automatic retry on the next run. Distinguish from `blocked`: blocked = human decision needed; failed = operational, auto-retried.
 
 ### issue-groomer
 
