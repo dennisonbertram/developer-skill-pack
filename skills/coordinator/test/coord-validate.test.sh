@@ -19,21 +19,9 @@ FAIL=0
 pass() { echo "  PASS  $1"; PASS=$((PASS + 1)); }
 fail() { echo "  FAIL  $1"; echo "        $2"; FAIL=$((FAIL + 1)); }
 
-run_validate() {
-  # run_validate <agent> <input>
-  # Runs coord-validate from COORD_DIR, returns exit code.
-  local agent="$1"
-  local input="$2"
-  (cd "$COORD_DIR" && ./coord-validate "$agent" "$input" 2>&1)
-}
-
-run_validate_stdin() {
-  # run_validate_stdin <agent> <json_string>
-  # Passes JSON via stdin to coord-validate, returns exit code.
-  local agent="$1"
-  local json="$2"
-  (cd "$COORD_DIR" && printf '%s' "$json" | ./coord-validate "$agent" - 2>&1)
-}
+# Create a temp directory that is cleaned up on exit.
+TMPDIR_TEST="$(mktemp -d)"
+trap 'rm -rf "$TMPDIR_TEST"' EXIT
 
 echo ""
 echo "coord-validate tests"
@@ -54,9 +42,24 @@ fi
 # When given JSON that is syntactically valid but missing a required field
 # (pr_url), coord-validate must exit 1 (schema validation failure), not 2
 # (schema not found). Exit 2 here would indicate the path-not-found bug.
-BROKEN_JSON='{"goal_id":"g1","issue_number":1,"issue_url":"https://example.com/issues/1","loop_status":"completed","claim_evidence":{},"files_changed":[],"audit_trail_commits":{"red":{"hash":"aaa1111","subject":"s"},"green":{"hash":"bbb2222","subject":"s"},"regression":{"hash":"ccc3333","subject":"s"}},"tdd_evidence":{"failing_before_implementation":"x","passing_after_implementation":"x","full_suite_at_regression":"x"},"behavioral_tests":[],"regression_tests":[],"dod_checklist_results":[],"blocked":false,"recommended_next_step":"done"}'
-# Note: pr_url is intentionally omitted to trigger a schema validation failure.
-out=$(cd "$COORD_DIR" && printf '%s' "$BROKEN_JSON" | ./coord-validate issue-implementer - 2>&1); rc=$?
+BROKEN_FILE="$TMPDIR_TEST/broken.json"
+cat > "$BROKEN_FILE" <<'ENDJSON'
+{
+  "goal_id": "g1",
+  "issue_number": 1,
+  "issue_url": "https://example.com/issues/1",
+  "loop_status": "completed",
+  "claim_evidence": { "label_swap_confirmed": true, "self_assign_confirmed": true },
+  "files_changed": ["/abs/path/file.ts"],
+  "behavioral_tests": [
+    { "spec_id": "BT-001", "description": "works", "status": "pass" }
+  ],
+  "blocked": false,
+  "recommended_next_step": "done"
+}
+ENDJSON
+# Note: pr_url is intentionally omitted to trigger a schema validation failure (exit 1).
+out=$(cd "$COORD_DIR" && ./coord-validate issue-implementer "$BROKEN_FILE" 2>&1); rc=$?
 if [ "$rc" -eq 1 ]; then
   pass "BT-002: invalid doc (missing pr_url) exits 1"
 else
@@ -78,7 +81,9 @@ fi
 # --- BT-004: valid worker JSON exits 0 (not issue-implementer-specific) ---
 # Verify schema resolution works for the worker agent — proves the fix is
 # not hard-coded to issue-implementer but resolves any schema correctly.
-VALID_WORKER_JSON='{
+VALID_WORKER_FILE="$TMPDIR_TEST/valid-worker.json"
+cat > "$VALID_WORKER_FILE" <<'ENDJSON'
+{
   "task_id": "TASK-001",
   "task_type": "feature",
   "scope_completed": ["Added feature X"],
@@ -102,8 +107,9 @@ VALID_WORKER_JSON='{
   "invariants_or_assumptions": ["stateless"],
   "risks_or_blockers": [],
   "recommended_next_step": "Ship it"
-}'
-out=$(cd "$COORD_DIR" && printf '%s' "$VALID_WORKER_JSON" | ./coord-validate worker - 2>&1); rc=$?
+}
+ENDJSON
+out=$(cd "$COORD_DIR" && ./coord-validate worker "$VALID_WORKER_FILE" 2>&1); rc=$?
 if [ "$rc" -eq 0 ]; then
   pass "BT-004: valid worker JSON exits 0 (schema resolution is agent-agnostic)"
 else
