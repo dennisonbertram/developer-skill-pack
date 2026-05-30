@@ -219,6 +219,102 @@ for agent in "${KNOWN_AGENTS[@]}"; do
 done
 
 # ---------------------------------------------------------------------------
+# Section 8 — REGRESSION: agent .md files have valid YAML frontmatter (name field)
+# If agents/ is accidentally populated with binary files or broken stubs,
+# each agent must have a proper name: field in its frontmatter.
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== Section 8 (regression): agents/*.md have YAML name: field ==="
+
+MISSING_NAME=0
+for link_file in "$AGENTS_SYMLINK_DIR"/*.md; do
+  agent_name=$(basename "$link_file")
+  name_val=$(python3 -c "
+import re, sys
+with open('$link_file', 'r', encoding='utf-8', errors='replace') as f:
+    content = f.read()
+m = re.match(r'^---\n(.*?)\n---', content, re.DOTALL)
+if m:
+    for line in m.group(1).splitlines():
+        if line.startswith('name:'):
+            print(line.split(':', 1)[1].strip())
+            sys.exit(0)
+print('')
+" 2>/dev/null)
+  if [[ -z "$name_val" ]]; then
+    fail "agents/$agent_name: missing 'name:' field in YAML frontmatter"
+    ((MISSING_NAME++)) || true
+  fi
+done
+if [[ $MISSING_NAME -eq 0 ]]; then
+  pass "All 20 agents have a 'name:' field in their YAML frontmatter"
+fi
+
+# ---------------------------------------------------------------------------
+# Section 9 — REGRESSION: plugin.json stays a PROPER plugin, not a marketplace
+# If someone accidentally swaps plugin.json and marketplace.json, this catches it.
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== Section 9 (regression): plugin.json is a plugin manifest, not marketplace ==="
+
+HAS_PLUGINS_ARRAY=$(python3 -c "
+import json
+d = json.load(open('$PLUGIN_JSON'))
+print('yes' if 'plugins' in d else 'no')
+" 2>/dev/null)
+if [[ "$HAS_PLUGINS_ARRAY" == "no" ]]; then
+  pass "plugin.json does NOT have a top-level 'plugins' array (correct — that's for marketplace.json)"
+else
+  fail "plugin.json has a 'plugins' array — it may be accidentally structured as a marketplace manifest"
+fi
+
+HAS_SCHEMA=$(python3 -c "
+import json
+d = json.load(open('$MARKETPLACE_JSON'))
+schema = d.get('\$schema', '')
+print('yes' if 'marketplace' in schema else 'no')
+" 2>/dev/null)
+if [[ "$HAS_SCHEMA" == "yes" ]]; then
+  pass "marketplace.json \$schema references 'marketplace' (not plugin schema)"
+else
+  fail "marketplace.json \$schema does not reference marketplace schema"
+fi
+
+# ---------------------------------------------------------------------------
+# Section 10 — REGRESSION: skills.sh.json is untouched (skills install not broken)
+# The skills.sh.json must remain valid JSON and reference the expected skills.
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== Section 10 (regression): skills.sh.json is intact ==="
+
+SKILLS_JSON="$REPO_ROOT/skills.sh.json"
+
+if python3 -c "import json, sys; json.load(open('$SKILLS_JSON'))" 2>/dev/null; then
+  pass "skills.sh.json is valid JSON (skills install path unbroken)"
+else
+  fail "skills.sh.json is NOT valid JSON — skills install path may be broken"
+fi
+
+# Check that expected skills are still listed
+EXPECTED_SKILLS=("coordinator" "ux-paths" "ux-walker" "walk-the-issues" "mine-transcripts" "setup-repo" "debug" "regression-guard" "research-spike")
+SKILLS_CONTENT=$(python3 -c "
+import json
+d = json.load(open('$SKILLS_JSON'))
+skills = []
+for g in d.get('groupings', []):
+    skills.extend(g.get('skills', []))
+print(' '.join(skills))
+" 2>/dev/null)
+
+for skill in "${EXPECTED_SKILLS[@]}"; do
+  if echo "$SKILLS_CONTENT" | grep -qw "$skill"; then
+    pass "skills.sh.json still lists skill: $skill"
+  else
+    fail "skills.sh.json is MISSING skill: $skill"
+  fi
+done
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""
