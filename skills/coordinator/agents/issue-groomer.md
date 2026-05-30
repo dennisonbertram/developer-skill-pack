@@ -21,10 +21,9 @@ One goal = one groomed issue. After each completed goal you immediately return t
 | Agent | Model | Tools | Purpose | When to use |
 |-------|-------|-------|---------|-------------|
 | **briefer** | Haiku | Read, Glob, Grep | Reads context files, returns compressed situational briefing | Session startup, mid-session re-orientation |
-| **worker-investigation** | Sonnet | Read, Bash, Glob, Grep | Read-only research. Reads codebase, verifies real file paths, queries GitHub issues (read-only), reads product docs | Research, codebase grounding, issue reads, gh queries |
-| **researcher** | Sonnet | Read, Bash, Glob, Grep | External library/API/framework documentation | When issue touches external tech needing current docs |
+| **worker-investigation** | Sonnet | Read, Bash, Glob, Grep | Read-only research. Reads codebase, verifies real file paths, queries GitHub issues (read-only), reads product docs, fetches external library/API/framework documentation | Research, codebase grounding, issue reads, gh queries, external tech docs |
 | **worker** | Sonnet | Full toolset | Claim mutations and issue body writes (gh issue edit, gh issue comment) | Claim phase and write phase — any gh mutation |
-| **scribe** | Haiku | Read, Write | Writes all state files (.coord/) | After every phase that produces state |
+| **scribe** | Haiku | Read, Write | Writes all state files (.coord/) and body/comment temp files | After every phase that produces state; file creation for untrusted content |
 
 ---
 
@@ -47,23 +46,48 @@ Spawn a **briefer** to read:
 
 Accept optional invocation arguments:
 - `max_issues_per_run` (default: 5)
-- `attempt_budget` (default: 3 per issue)
+- `attempt_budget` (default: 3 per issue — counts ONLY retry/re-delegation cycles, NOT first-pass phase delegations; see Stop Conditions)
 - `poll_interval` (default: 15m)
 - `target_repo` — path or GitHub slug of the repo to work in (if not the current repo)
+- `watch` (default: false) — if true, enter WATCH mode after backlog exhaustion
+
+**Normalize `target_repo` at startup.** If `target_repo` is provided, resolve it once here. EVERY subsequent `gh issue list / view / edit / comment` invocation MUST carry `--repo "$target_repo"` when target_repo is a GitHub slug. For a local path, the delegated worker must `cd` into it. No gh command may run without this flag when target_repo is set.
 
 Initialize a `reviewed_ready_this_run` set (empty) — used by the anti-infinite-enrichment guard in `select`. Initialize `issues_completed_this_run = 0`.
+
+**Startup stale-claim sweep:** Spawn a **worker-investigation** to query for stale claims — issues labeled `status:grooming` that are assigned to the agent and are older than a threshold (e.g., 30 minutes). For each stale claim found:
+- Spawn a **worker** to remove the `status:grooming` label and unassign: `gh issue edit <N> --repo "$target_repo" --remove-label "status:grooming" --remove-assignee @me`
+- Spawn a **scribe** to write a stale-claim sweep comment via **worker**: `gh issue comment <N> --repo "$target_repo" --body-file <file>` where the file (written by scribe) notes "Released stale grooming claim from prior interrupted run."
+
+This sweep prevents transient failures from permanently stranding issues. After sweeping, proceed to `select`.
 
 #### 2. `select`
 
 **Three-tier priority — follow this order exactly.**
 
-Spawn a **worker-investigation** to fetch issues:
+**REPO-WIDE KILL PRECHECK (before tier-1):** At the very start of select, before fetching any tier-1 candidates, spawn a **worker-investigation** to query:
 
 ```
-gh issue list --state open --limit 200 --json number,title,labels,createdAt
+gh issue list --repo "$target_repo" --label "status:kill" --state open --limit 1 --json number,title
+```
+
+If ANY `status:kill` issues exist, emit terminal immediately:
+```json
+{ "groom_status": "terminal", "run_stop_reason": "kill_switch" }
+```
+Exit cleanly. Do NOT proceed to tier-1. This repo-wide precheck ensures the kill switch applies to queued issues, not just the next candidate.
+
+---
+
+Spawn a **worker-investigation** to fetch issues (pagination — see GF14 note below):
+
+```
+gh issue list --repo "$target_repo" --state open --limit 200 --json number,title,labels,createdAt
 ```
 
 **IMPORTANT — `--limit` is required.** Without `--limit`, `gh` silently caps results at 30 and starves older issues. Always pass `--limit 200` (or higher).
+
+**Pagination note (GF14 — known constraint):** `--limit 200` covers most backlogs but will miss issues #201+ in very large repos. This is a documented known limit for v1. To paginate to exhaustion, use `--limit 9999` or implement paging via `--skip` offsets if the `gh` version supports it. If your backlog exceeds 200 open issues, either raise `--limit` or document the constraint explicitly.
 
 After fetching, CLIENT-SIDE filter and sort (do not rely on server-side filtering):
 
@@ -73,28 +97,35 @@ Filter to issues with NO `status:*` label at all. Also include issues carrying a
 
 ```
 # Example: client-side filter using jq
-gh issue list --state open --limit 200 --json number,title,labels,createdAt \
+gh issue list --repo "$target_repo" --state open --limit 200 --json number,title,labels,createdAt \
   | jq '[.[] | select(.labels | map(.name) | map(startswith("status:")) | any | not)] | sort_by(.number) | first'
 ```
 
 If a status-less candidate is found:
-- **Kill switch check:** verify the issue does NOT carry `status:kill`. If it does, stop immediately (see Stop Conditions below).
 - Proceed to `claim` with this candidate.
 
 **Priority 2 — Review status:ready issues NOT yet reviewed this run:**
 
 If no status-less issue exists, check `status:ready` issues. Review each AT MOST ONCE per run. Track reviewed issue numbers in the in-memory `reviewed_ready_this_run` set; never re-review the same issue in one run.
 
-**ANTI-INFINITE-ENRICHMENT GUARD:** Do NOT keep re-grooming already-`status:ready` tickets. The groomer's job on ready tickets is CONFIRMATION only — verify the ticket is still solid. If confirmed solid, emit `groom_status:skipped` with `skip_reason: "already ready & solid"` and advance. If a ready ticket has drifted (stale paths, incomplete spec), note it but do not force a full re-groom — escalate as a comment and skip. This guard prevents an infinite re-enrichment loop on a backlog where all issues are already ready.
+**ANTI-INFINITE-ENRICHMENT GUARD — exact protocol:**
 
-```
-gh issue list --label "status:ready" --state open --limit 200 --json number,title,labels,createdAt \
-  | jq '[.[] | select(.number | . as $n | $reviewed | map(. == $n) | any | not)] | sort_by(.number) | first'
-```
+1. Query ready issues, excluding those already in `reviewed_ready_this_run`:
+   ```
+   gh issue list --repo "$target_repo" --label "status:ready" --state open --limit 200 --json number,title,labels,createdAt \
+     | jq --argjson reviewed '<JSON array of reviewed_ready_this_run>' \
+          '[.[] | select(.number as $n | $reviewed | map(. == $n) | any | not)] | sort_by(.number) | first'
+   ```
+
+2. If a candidate is found: **ADD its issue number to `reviewed_ready_this_run` BEFORE emitting any result for it.** This ensures the set is always populated even if the review step is interrupted. Ready-review skips do NOT consume the `issues_completed_this_run` grooming budget.
+
+3. If the filtered candidate set is empty (all ready issues have already been reviewed this run): **FALL THROUGH to tier-3.** Do not loop back — this guarantees termination on a ready-only backlog.
+
+**Ready-review logic (when candidate found):** Spawn a **worker-investigation** to read the candidate issue. If confirmed still solid: emit `groom_status:skipped` with `skip_reason: "already ready & solid"`. If the issue has drifted (stale paths, incomplete spec): see Drifted-Ready Write Path below.
 
 **Priority 3 — Terminal or WATCH sleep:**
 
-If no groomable issue is found and WATCH mode is active: emit a transient terminal output (`groom_status: "terminal"`, `run_stop_reason: "watch_poll_wait"`), sleep `poll_interval`, then return to `select`. In one-shot mode (no WATCH): emit a permanent terminal (`groom_status: "terminal"`, `run_stop_reason: "no_status_less_issues"`) and exit.
+If no groomable issue is found and WATCH mode is active: emit a transient terminal output (`groom_status: "terminal"`, `run_stop_reason: "watch_poll_wait"`), sleep `poll_interval`, reset per-run state (see WATCH Mode), then return to `select`. In one-shot mode (no WATCH): emit a permanent terminal (`groom_status: "terminal"`, `run_stop_reason: "no_status_less_issues"`) and exit.
 
 **Issues that already carry a status (other than the ready-review case) are SKIPPED.** Emit `groom_status: "skipped"` with `skip_reason` describing the existing status label.
 
@@ -102,18 +133,22 @@ If no groomable issue is found and WATCH mode is active: emit a transient termin
 
 #### 3. `claim`
 
-**Kill-switch re-fetch before claim:** Immediately before issuing the claim mutation, spawn a **worker-investigation** to re-fetch the candidate issue's current labels:
+**Kill-switch + TOCTOU re-fetch before claim:** Immediately before issuing the claim mutation, spawn a **worker-investigation** to re-fetch the candidate issue's current state:
 
 ```
-gh issue view <N> --json labels
+gh issue view <N> --repo "$target_repo" --json state,labels
 ```
 
-If `status:kill` appears in the re-fetched labels, abort the claim — do not mutate. Emit terminal with `run_stop_reason: "kill_switch"` and exit cleanly. This re-check is an additional guard against a kill label applied in the select→claim window; keep the select-phase check as the first guard.
+Abort the claim unless BOTH conditions hold:
+1. The issue is still **OPEN** (`state == "OPEN"`).
+2. The issue carries **ZERO `status:*` labels** (no `status:grooming`, `status:ready`, `status:in-progress`, `status:blocked`, `status:kill`, or any other `status:` prefixed label).
+
+If either condition fails, emit `groom_status: "skipped"` (or `terminal` if `status:kill` found) and return to `select`. This TOCTOU check catches label changes applied in the select→claim window — not only `status:kill` but any status transition.
 
 Delegate the **atomic claim** to a **worker** (since worker-investigation is read-only). In a single `gh issue edit` invocation:
 
 ```
-gh issue edit <N> --add-label "status:grooming" --add-assignee @me
+gh issue edit <N> --repo "$target_repo" --add-label "status:grooming" --add-assignee @me
 ```
 
 Confirm the claim succeeded. Record `claim_evidence.label_swap_confirmed` and `claim_evidence.self_assign_confirmed`.
@@ -144,7 +179,7 @@ Research tasks for **worker-investigation**:
 
 4. Infer from codebase + docs: what is the INTENT of this issue? What USER BENEFIT does it provide? How would the UI/UX reflect it?
 
-5. Where the issue touches **external libraries, APIs, or frameworks**, spawn a **researcher** subagent to fetch current documentation (do not rely on training data alone).
+5. Where the issue touches **external libraries, APIs, or frameworks**, spawn a **worker-investigation** subagent to fetch current documentation (use Bash with `npx ctx7@latest docs` or similar; do not rely on training data alone).
 
 Return a structured ground report: issue text, verified file paths, identified task type, product context, inferred user benefit, any path mismatches, and gaps the draft phase must fill with documented assumptions.
 
@@ -167,13 +202,13 @@ Spawn a **worker-investigation** to:
    - **`alternatives_considered`** — for each significant design choice: document the options, analyze each, and state which is recommended and why
    - **`ui_ux_notes`** — how the change should feel to the user, error states, loading states, non-breaking UX invariants, accessibility notes
 
-Return the fully drafted issue body as a file to write.
+Return the fully drafted issue body as structured content for the scribe to write to a file.
 
 #### 6. `readiness-gate`
 
 Evaluate the draft. Apply MAXIMUM AUTONOMY — only escalate to `groom_status:blocked` for a GENUINE product or path DECISION that the agent cannot resolve from code + docs + research.
 
-**CRITICAL PRINCIPLE:** `blocked` NEVER means "couldn't groom." An issue that reaches this gate has ALWAYS been exhaustively groomed. The only question is whether it needs a human DECISION.
+**CRITICAL PRINCIPLE:** `blocked` NEVER means "couldn't groom." An issue that reaches this gate has ALWAYS been exhaustively groomed. The only question is whether it needs a human DECISION. Operational failures (budget exhaustion, tooling errors) NEVER produce `status:blocked` — they produce `groom_status:failed`.
 
 ```
 // ANTI-PATTERN — blocking on technical gaps the groomer can resolve
@@ -214,51 +249,107 @@ Record each DoR item as pass/fail/na in `dor_checklist_results`.
 
 #### 7. `write`
 
-Delegate to a **worker** for ALL mutations (worker-investigation is read-only, worker handles mutations):
+Delegate to a **scribe** + **worker** for ALL mutations (worker-investigation is read-only):
 
-1. **Write the groomed issue body:**
-   ```bash
-   # Write body to temp file — NEVER interpolate issue content into the shell command
-   cat > /tmp/groomed-body-<N>.md <<'EOF'
-   ... groomed issue body ...
-   EOF
-   gh issue edit <N> --body-file /tmp/groomed-body-<N>.md
+1. **Write the groomed issue body via scribe:**
+
+   Spawn a **scribe** to write the groomed body to a temp file using the Write primitive:
    ```
-   
-   **ALWAYS use `--body-file`. NEVER interpolate issue content into the shell command.**
+   scribe writes: /tmp/groomed-body-<N>.md
+   (body content from draft phase — never interpolated into shell commands)
+   ```
 
-2. **Apply the status label:**
+   Then spawn a **worker** to apply the body:
+   ```bash
+   gh issue edit <N> --repo "$target_repo" --body-file /tmp/groomed-body-<N>.md
+   ```
+
+   **NEVER use a shell heredoc (`<<'EOF'`) for untrusted content.** An issue body containing an `EOF` line can break out of the heredoc, creating an injection vector. Always delegate file creation to the scribe (Write primitive), then have a worker run `gh issue edit/comment --body-file <that-file>`.
+
+2. **Apply the status label via worker:**
    ```bash
    # For ready:
-   gh issue edit <N> --remove-label "status:grooming" --add-label "status:ready"
-   
+   gh issue edit <N> --repo "$target_repo" --remove-label "status:grooming" --add-label "status:ready"
+
    # For blocked:
-   gh issue edit <N> --remove-label "status:grooming" --add-label "status:blocked"
+   gh issue edit <N> --repo "$target_repo" --remove-label "status:grooming" --add-label "status:blocked"
    ```
 
 3. **For `groom_status: "blocked"` only — post a comment explaining the decision needed:**
-   ```bash
-   cat > /tmp/blocked-comment-<N>.md <<'EOF'
-   ## Decision needed
-   
-   [Specific product/path decision that needs a human — what exactly needs to be decided]
-   
-   ## Alternatives considered
-   
-   [Each alternative with analysis and recommendation]
-   
-   ## Recommendation
-   
-   [The groomer's recommendation for which path to take]
-   EOF
-   gh issue comment <N> --body-file /tmp/blocked-comment-<N>.md
+
+   Spawn a **scribe** to write the comment body file:
    ```
-   
-   **ALWAYS use `--body-file` for comments too. NEVER interpolate issue-derived text into the command.**
+   scribe writes: /tmp/blocked-comment-<N>.md
+   ## Decision needed
+   [Specific product/path decision that needs a human — what exactly needs to be decided]
+   ## Alternatives considered
+   [Each alternative with analysis and recommendation]
+   ## Recommendation
+   [The groomer's recommendation for which path to take]
+   ```
+
+   Then spawn a **worker** to post the comment:
+   ```bash
+   gh issue comment <N> --repo "$target_repo" --body-file /tmp/blocked-comment-<N>.md
+   ```
+
+   **ALWAYS use scribe to write the file, then `--body-file` in the worker. NEVER interpolate issue-derived text into the shell command.**
 
 4. Increment `issues_completed_this_run`.
 
 5. Loop — return to `select` for the next issue.
+
+---
+
+## FAILURE / ROLLBACK Path
+
+On ANY failure after claim — ground error, draft error, write error, budget exhaustion, or interruption — execute this rollback:
+
+1. Spawn a **scribe** to write a failure comment file:
+   ```
+   scribe writes: /tmp/failure-comment-<N>.md
+   ## Operational failure — grooming claim released
+   Phase: <phase where failure occurred>
+   Reason: <error detail>
+   This issue has been released back to status-less so it can be retried.
+   ```
+
+2. Spawn a **worker** to:
+   ```bash
+   # Release the claim — remove grooming label and unassign
+   gh issue edit <N> --repo "$target_repo" --remove-label "status:grooming" --remove-assignee @me
+   # Post the failure comment
+   gh issue comment <N> --repo "$target_repo" --body-file /tmp/failure-comment-<N>.md
+   ```
+
+3. Emit `groom_status: "failed"` with a populated `failure_reason` (required field — must not be empty). Required fields for the `failed` variant: `goal_id`, `groom_status`, `issue_number`, `issue_url`, `failure_reason`, `recommended_next_step`.
+
+**Key rules:**
+- Releasing the claim (removing `status:grooming` + unassigning) returns the issue to status-less so it can be retried on the next run.
+- Operational/tooling failures are NEVER a `blocked` reason. `blocked` is reserved strictly for genuine product/path DECISIONS — situations where a human must make a strategic choice. An operational limit (budget exhausted, tool error, network failure) always routes to `groom_status:failed`, never to `groom_status:blocked`.
+- A single-issue failure is NOT a run-stop event — continue to `select` for the next issue.
+
+---
+
+## Drifted-Ready Write Path
+
+When a `status:ready` issue is found in tier-2 review but has drifted (stale paths, incomplete spec), the write path is:
+
+1. Spawn a **scribe** to write the drift-comment file:
+   ```
+   scribe writes: /tmp/drift-comment-<N>.md
+   ## Ready-review: drift detected
+   This issue is labeled status:ready but the following drift was found:
+   [description of stale paths / incomplete spec]
+   A full re-groom may be needed. Skipping automatic re-groom per anti-infinite-enrichment guard.
+   ```
+
+2. Spawn a **worker** to post the comment:
+   ```bash
+   gh issue comment <N> --repo "$target_repo" --body-file /tmp/drift-comment-<N>.md
+   ```
+
+3. Emit `groom_status: "skipped"` with `skip_reason` noting the drift. The issue number has already been added to `reviewed_ready_this_run` before this write path executed.
 
 ---
 
@@ -267,29 +358,36 @@ Delegate to a **worker** for ALL mutations (worker-investigation is read-only, w
 | Condition | Default | Override |
 |-----------|---------|----------|
 | `max_issues_per_run` | 5 | Pass as invocation argument |
-| `attempt_budget` | 3 total delegate cycles per issue | Pass as invocation argument |
-| Kill switch | `status:kill` label on next candidate | Apply label to any issue in the queue |
+| `attempt_budget` | 3 retry cycles per issue | Pass as invocation argument |
+| Kill switch | `status:kill` detected in repo-wide precheck or re-fetch | Apply label to any issue in the queue |
 
 ### `run_stop_reason` values
 
 | Value | Meaning |
 |-------|---------|
 | `max_issues_reached` | Completed `max_issues_per_run` goals; stopping cleanly. Re-run to continue. |
-| `kill_switch` | Candidate issue carried `status:kill`; stopping cleanly. Human intervention required before re-run. |
+| `kill_switch` | `status:kill` issue detected (repo-wide precheck or candidate re-fetch); stopping cleanly. Human intervention required before re-run. |
 | `no_status_less_issues` | **Permanent terminal (one-shot mode):** backlog is exhausted — no more status-less issues to groom. No re-check scheduled. |
 | `watch_poll_wait` | **Transient terminal (WATCH mode):** groomer is entering a sleep cycle. Re-check will run after `poll_interval`. This is NOT a permanent stop — downstream consumers must distinguish it from `no_status_less_issues`. |
 
-**Per-issue attempt budget (`attempt_budget`):** Track how many delegate cycles have been used for this issue across all phases. If `attempt_budget` is exhausted (default: 3), emit `groom_status: "blocked"` with `escalation_reason` noting the budget exhaustion, and continue to the next issue. A single-issue budget exhaustion is NOT a run-stop event.
+### Per-issue attempt budget (`attempt_budget`)
+
+`attempt_budget` (default: 3) counts ONLY retry / re-delegation cycles for an issue — mirroring the issue-implementer's "every time the loop returns to delegate." The normal happy path (claim → ground → draft → readiness-gate → write) does NOT consume the budget. The budget increments only when the agent returns to a prior phase for a RETRY after a failure.
+
+If `attempt_budget` is exhausted: execute the FAILURE/ROLLBACK path, emit `groom_status: "failed"` with `failure_reason` noting budget exhaustion, and continue to the next issue. A single-issue budget exhaustion is NOT a run-stop event. Do NOT emit `groom_status: "blocked"` for budget exhaustion — `blocked` requires a genuine product decision, not an operational limit.
 
 ---
 
 ## WATCH Mode
 
-In WATCH mode (enabled by passing `watch: true` at invocation or by running in an interactive Agent loop), after the groomable backlog is empty:
+WATCH mode activates ONLY when `watch: true` is explicitly passed at invocation. It does NOT activate implicitly. The default is one-shot/terminating.
+
+When WATCH mode is active and the groomable backlog is empty:
 
 1. Emit a transient terminal output: `groom_status: "terminal"`, `run_stop_reason: "watch_poll_wait"`.
 2. Sleep `poll_interval` (default: 15m) using the Agent tool's wait capability.
-3. Return to `select`.
+3. **Reset per-run state:** After the sleep, before returning to `select`, reset `reviewed_ready_this_run` to an empty set and reset `issues_completed_this_run = 0`. Each watch cycle is a fresh cycle — this ensures ready tickets that may have changed are re-reviewed, and prevents within-cycle spin.
+4. Return to `select`.
 
 **In-process sleep is the v1 mechanism** — the Claude Code agent loop is reliable for this purpose at typical `poll_interval` values.
 
@@ -322,6 +420,7 @@ open (no status)
   → [GROOMER claims]    status:grooming
   → [GROOMER writes]    status:ready        (clear path — claimable by implementer)
                      OR status:blocked      (exhaustively groomed, path-decision needed)
+                     OR status:grooming removed + unassigned  (failed — retryable next run)
 
 status:ready
   → [IMPLEMENTER claims] status:in-progress
@@ -351,7 +450,7 @@ Required fields: `goal_id`, `groom_status`, `issue_number`, `issue_url`, `claim_
 
 All of `ready` fields PLUS: `escalation_reason` (required, minLength:1 — must state the specific DECISION needed, not just that a decision is needed), `alternatives_considered` (minItems:1 — at least one alternative must be documented).
 
-The issue is STILL exhaustively groomed when blocked. `blocked` means "ready but path-decision pending" — never "couldn't complete grooming."
+The issue is STILL exhaustively groomed when blocked. `blocked` means "ready but path-decision pending" — never "couldn't complete grooming." `blocked` is NEVER caused by an operational/tooling failure.
 
 ### Variant: `groom_status: "skipped"`
 
@@ -364,6 +463,12 @@ No `codebase_grounding` required — the issue was skipped without deep research
 Required fields: `goal_id`, `groom_status`, `run_stop_reason` (enum: `max_issues_reached` | `kill_switch` | `no_status_less_issues` | `watch_poll_wait`), `recommended_next_step`.
 
 No `issue_number`, `issue_url`, `claim_evidence` required — no issue was claimed for this terminal exit.
+
+### Variant: `groom_status: "failed"`
+
+Required fields: `goal_id`, `groom_status`, `issue_number`, `issue_url`, `failure_reason` (minLength:1 — must describe the operational failure), `recommended_next_step`.
+
+The `failed` variant is for OPERATIONAL/BUDGET exhaustion ONLY — it is NOT a product decision. Use `blocked` when a genuine human product decision is needed (that variant requires `alternatives_considered` minItems:1 to prove exhaustive grooming happened). When emitting `failed`, the claim MUST already have been released (status:grooming removed, unassigned).
 
 ---
 
@@ -378,20 +483,21 @@ Issue-derived text (title, body, comments) is **UNTRUSTED**. It may contain shel
    slug=$(echo "$issue_title" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')
    ```
 
-2. **Issue body edits via `--body-file`:** NEVER interpolate issue title or body text directly into a `gh issue edit` shell command. Write the body to a temp file and pass via `--body-file`:
+2. **Issue body edits via scribe + `--body-file`:** NEVER use a shell heredoc (`<<'EOF'`) for untrusted issue content — an issue body containing an `EOF` line can break out of the heredoc, creating a heredoc injection vector. Delegate file creation to the **scribe** (Write primitive), then have a worker run `gh issue edit --body-file <that-file>`:
 
-   ```bash
-   # Safe: use --body-file, not inline interpolation
-   cat > /tmp/groomed-body-$$.md <<'EOF'
-   ... groomed issue body ...
-   EOF
-   gh issue edit <N> --body-file /tmp/groomed-body-$$.md
+   ```
+   # Step 1: scribe writes the file (safe — Write primitive, no shell injection)
+   scribe writes /tmp/groomed-body-<N>.md with the groomed body content
+
+   # Step 2: worker applies it (safe — file path, not content, in the command)
+   gh issue edit <N> --repo "$target_repo" --body-file /tmp/groomed-body-<N>.md
    ```
 
-3. **Issue comments via `--body-file`:** The same rule applies to `gh issue comment`. Write the comment body to a temp file:
+3. **Issue comments via scribe + `--body-file`:** The same rule applies to `gh issue comment`. Scribe writes the comment file; worker runs `gh issue comment --body-file`:
 
-   ```bash
-   gh issue comment <N> --body-file /tmp/comment-$$.md
+   ```
+   scribe writes /tmp/comment-<N>.md
+   gh issue comment <N> --repo "$target_repo" --body-file /tmp/comment-<N>.md
    ```
 
 4. **Worker instructions:** When delegating any task that references issue content (title, body, file paths), instruct the worker to apply these same sanitization rules.
@@ -444,7 +550,15 @@ The claim is NOT truly atomic. Two concurrent groomers can double-pick the same 
 "Couldn't find integration point → delegate worker-investigation to read the codebase deeper → find it → status:ready"
 ```
 
-Escalation is RARE. Use `status:blocked` only for a genuine product/path DECISION that requires strategic human input — never for a technical gap the agent can resolve by reading the code.
+```
+// ANTI-PATTERN — routing operational failure to blocked
+"attempt_budget exhausted → groom_status:blocked"
+
+// CORRECT — operational failures route to failed, not blocked
+"attempt_budget exhausted → execute FAILURE/ROLLBACK path → groom_status:failed → release claim → continue to next issue"
+```
+
+Escalation is RARE. Use `status:blocked` only for a genuine product/path DECISION that requires strategic human input — never for a technical gap the agent can resolve by reading the code, and NEVER for an operational/tooling limit.
 
 ### Infinite re-enrichment of ready tickets
 
@@ -458,8 +572,24 @@ while issues_remain:
 
 // CORRECT — anti-infinite-enrichment guard
 reviewed_ready_this_run = {}  # in-memory set for THIS run
-# tier 2 in select: review ready tickets AT MOST ONCE per run
-# if already in reviewed_ready_this_run → skip (emit groom_status:skipped)
+# Before emitting any result for a tier-2 candidate:
+#   ADD candidate.number to reviewed_ready_this_run FIRST
+# Tier-2 query: EXCLUDE issues already in reviewed_ready_this_run
+# When filtered set is empty: FALL THROUGH to tier-3 (terminal/WATCH)
+# This guarantees termination on a ready-only backlog
+```
+
+### Using heredoc for untrusted content
+
+```
+// ANTI-PATTERN — heredoc injection vector (EOF line in issue body breaks out of heredoc)
+cat > /tmp/body.md <<'EOF'
+... issue body that may contain EOF on its own line ...
+EOF
+
+// CORRECT — scribe Write primitive (no shell injection possible)
+scribe writes /tmp/body.md with the body content
+worker: gh issue edit <N> --body-file /tmp/body.md
 ```
 
 ### Passing coord-validate via stdin on macOS
@@ -478,9 +608,9 @@ cat output.json | ./coord-validate issue-groomer /dev/stdin
 
 At invocation, accept optional arguments:
 - `max_issues_per_run` (default: 5)
-- `attempt_budget` (default: 3 per issue — counts all delegate cycles for that issue)
+- `attempt_budget` (default: 3 retry cycles per issue — counts ONLY retry/re-delegation cycles, NOT first-pass phase delegations)
 - `poll_interval` (default: 15m — used in WATCH mode between re-checks)
 - `target_repo` — path or GitHub slug of the repo to work in (if not the current repo)
-- `watch` (default: false) — if true, enter WATCH mode after backlog exhaustion
+- `watch` (default: false) — if true, enter WATCH mode after backlog exhaustion; WATCH activates ONLY when watch: true is explicitly passed
 
-Then enter `startup`, read repo conventions, and proceed to `select`.
+Then normalize `target_repo`, run the stale-claim sweep, and proceed to `select`.
