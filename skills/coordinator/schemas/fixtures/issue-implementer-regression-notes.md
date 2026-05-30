@@ -32,11 +32,10 @@ to enforce it. The `required` constraint on `pr_url` IS enforced (FAIL-1 above).
 If `ajv` is available, it enforces `format: uri` by default via `--strict=false`
 in the coord-validate invocation.
 
-## Known limitation: coord-validate path resolution
+## coord-validate path resolution (fixed)
 
-`coord-validate` resolves `SCHEMAS_DIR` as `$SCRIPT_DIR/../schemas`
-(`skills/schemas/`), but schemas live at `skills/coordinator/schemas/`. This
-means `coord-validate` cannot find the schema when run as documented. Validation
-was performed via `python3 jsonschema` (the same backend coord-validate uses as
-its third-priority fallback). This is a pre-existing issue in the coord-validate
-script and is out of scope for TASK-001.
+`coord-validate` correctly resolves `SCHEMAS_DIR` as `$SCRIPT_DIR/../schemas`
+which points to `skills/coordinator/schemas/` — where the schemas live.
+This was fixed in commit 76bc0fe (TASK-001b): the script now derives its path
+from its own location so it works from any working directory. The stale note
+claiming this was broken and out-of-scope is no longer accurate.

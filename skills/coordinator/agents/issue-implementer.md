@@ -139,8 +139,13 @@ Spawn the correct worker variant in a **dedicated git worktree LOCAL to the targ
 |----------------------|-----------------|
 | `feature` | **worker** (TDD: red/green/regression) |
 | `bugfix` | **worker** (TDD: red/green/regression, red commit reproduces bug) |
-| `refactor` | **worker-refactor** (existing tests pass before & after) |
-| `test` | **worker-test** (meaningful tests, mutation-checked) |
+
+> **Deferred — refactor/test issue types: not in v1.** The target repos have no
+> refactor or test issue templates, so a groomed backlog never contains standalone
+> refactor or test issues. To add later: re-introduce the `worker-refactor` and
+> `worker-test` routing rows AND add a per-task-type output-schema variant where
+> refactor/test completions record `audit_trail_commits` stages as
+> `"n/a — no red phase"` and relax `tdd_evidence.failing_before_implementation`.
 
 Worker outputs a JSON report conforming to `schemas/worker-output.schema.json` (or the variant's schema). Write the output to a temp file for validation.
 
@@ -208,7 +213,36 @@ Unlike the coordinator's `validate` phase, this agent does NOT ask the human use
 1. Spawn a **worker** to open a pull request:
    - **Auto-detect the base branch**: check if `dev` exists on `origin`; if yes, target `dev`, else target `main`.
    - PR title: matches the issue title.
-   - PR body: includes `Closes #<N>`, a summary of changes, and maps deploy/doc-impact fields from the issue if present.
+   - **PR body — self-contained proof**: Build the PR body FROM the goal's structured output report. The PR body is the **durable, self-contained proof** of the work done. Do NOT store the report only in `.coord/` and link to it — `.coord/` is ephemeral and gitignored, and the link would dangle. The body MUST contain:
+
+     **(a) Human-readable summary:**
+     - One-line what + why (derived from the issue title and goal).
+     - The Definition-of-Done checklist rendered as real markdown checkboxes (`- [x]` / `- [ ]`), mirroring `dod_checklist_results` from the report.
+     - Tests added: behavioral tests (from `behavioral_tests`) and regression tests (from `regression_tests`).
+     - Audit-trail commits linked: red → green → regression (from `audit_trail_commits`).
+     - `Closes #<issue_number>`.
+
+     **(b) Full raw structured report** inside a collapsible block at the bottom:
+     ```
+     <details><summary>Machine-readable run report</summary>
+
+     ```json
+     { ... full goal output JSON ... }
+     ```
+
+     </details>
+     ```
+
+   - **Injection safety**: The body MUST be written to a temp file and passed via `--body-file <tempfile>` — never interpolated into the shell command. This is the same `--body-file` contract as everywhere else in this agent.
+
+     ```bash
+     # Safe: write body to temp file, pass via --body-file
+     cat > /tmp/pr-body-$$.md <<'PREOF'
+     ... rendered PR body ...
+     PREOF
+     gh pr create --title "$safe_title" --body-file /tmp/pr-body-$$.md
+     ```
+
    - Branch: the feature branch created in `delegate`.
 
 2. Record `pr_url` in the goal output.
