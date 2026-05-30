@@ -1,0 +1,8 @@
+{
+  "goal_id": "goal-groomer-2026-005",
+  "groom_status": "failed",
+  "issue_number": 42,
+  "issue_url": "https://github.com/acme/myapp/issues/42",
+  "failure_reason": "Budget exhausted after 3 attempts. The issue could not be groomed within the operational attempt limit. This is an operational failure, not a product decision — retry after adjusting attempt_budget or reducing scope.",
+  "recommended_next_step": "Retry grooming this issue with a higher attempt_budget, or break the issue into smaller scopes before re-running the groomer."
+}

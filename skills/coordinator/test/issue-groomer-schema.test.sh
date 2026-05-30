@@ -188,6 +188,97 @@ else
        "expected exit 0, got exit $rc — output: $out"
 fi
 
+# --- BT-G08: failed fixture validates (exit 0) ---
+# A failed goal is an operational failure (budget/infra exhaustion) that must NOT
+# be forced into blocked (which requires alternatives_considered minItems:1 and
+# signals a product decision). The failed variant requires goal_id, groom_status,
+# issue_number, issue_url, failure_reason, recommended_next_step — and NO
+# alternatives_considered or codebase_grounding.
+out=$(cd "$COORD_DIR" && ./coord-validate issue-groomer "$FIXTURES_DIR/issue-groomer-output-failed.json" 2>&1); rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "BT-G08: failed fixture (groom_status:failed) validates -> exit 0"
+else
+  fail "BT-G08: failed fixture (groom_status:failed) validates -> exit 0" \
+       "expected exit 0, got exit $rc — output: $out"
+fi
+
+# --- BT-G09: failed output missing failure_reason fails (exit 1) ---
+# When groom_status:failed, failure_reason is required (minLength:1).
+# Omitting it must fail schema validation.
+FAILED_NO_REASON="$TMPDIR_TEST/failed-no-reason.json"
+cat > "$FAILED_NO_REASON" <<'ENDJSON'
+{
+  "goal_id": "goal-invalid-failed-01",
+  "groom_status": "failed",
+  "issue_number": 42,
+  "issue_url": "https://github.com/acme/myapp/issues/42",
+  "recommended_next_step": "Retry grooming."
+}
+ENDJSON
+out=$(cd "$COORD_DIR" && ./coord-validate issue-groomer "$FAILED_NO_REASON" 2>&1); rc=$?
+if [ "$rc" -eq 1 ]; then
+  pass "BT-G09: failed output missing failure_reason -> exit 1 (validation failure)"
+else
+  fail "BT-G09: failed output missing failure_reason -> exit 1 (validation failure)" \
+       "expected exit 1, got exit $rc — output: $out"
+fi
+
+# --- BT-G10: failed output with empty failure_reason fails (exit 1) ---
+# When groom_status:failed, failure_reason must have minLength:1.
+# An empty string must be rejected.
+FAILED_EMPTY_REASON="$TMPDIR_TEST/failed-empty-reason.json"
+cat > "$FAILED_EMPTY_REASON" <<'ENDJSON'
+{
+  "goal_id": "goal-invalid-failed-02",
+  "groom_status": "failed",
+  "issue_number": 42,
+  "issue_url": "https://github.com/acme/myapp/issues/42",
+  "failure_reason": "",
+  "recommended_next_step": "Retry grooming."
+}
+ENDJSON
+out=$(cd "$COORD_DIR" && ./coord-validate issue-groomer "$FAILED_EMPTY_REASON" 2>&1); rc=$?
+if [ "$rc" -eq 1 ]; then
+  pass "BT-G10: failed output with failure_reason:\"\" -> exit 1 (minLength enforcement)"
+else
+  fail "BT-G10: failed output with failure_reason:\"\" -> exit 1 (minLength enforcement)" \
+       "expected exit 1, got exit $rc — output: $out"
+fi
+
+# --- BT-G11: skipped standalone fixture validates (exit 0) ---
+# The standalone skipped fixture (not an inline tmpfile) must pass schema validation.
+# Validates the file path approach: coord-validate accepts file paths directly.
+out=$(cd "$COORD_DIR" && ./coord-validate issue-groomer "$FIXTURES_DIR/issue-groomer-output-skipped.json" 2>&1); rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "BT-G11: skipped standalone fixture validates -> exit 0"
+else
+  fail "BT-G11: skipped standalone fixture validates -> exit 0" \
+       "expected exit 0, got exit $rc — output: $out"
+fi
+
+# --- BT-G12: failed output without alternatives_considered validates (exit 0) ---
+# The failed variant must NOT require alternatives_considered. Budget/operational
+# exhaustion is not a product decision — there is no viable alternative to
+# document. This test proves the if/then for failed does NOT impose that field.
+FAILED_NO_ALT="$TMPDIR_TEST/failed-no-alternatives.json"
+cat > "$FAILED_NO_ALT" <<'ENDJSON'
+{
+  "goal_id": "goal-valid-failed-01",
+  "groom_status": "failed",
+  "issue_number": 55,
+  "issue_url": "https://github.com/acme/myapp/issues/55",
+  "failure_reason": "Attempt budget exhausted (3/3 attempts used) without successfully grooming the issue.",
+  "recommended_next_step": "Increase attempt_budget and retry."
+}
+ENDJSON
+out=$(cd "$COORD_DIR" && ./coord-validate issue-groomer "$FAILED_NO_ALT" 2>&1); rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "BT-G12: failed output without alternatives_considered validates -> exit 0"
+else
+  fail "BT-G12: failed output without alternatives_considered validates -> exit 0" \
+       "expected exit 0, got exit $rc — output: $out"
+fi
+
 # =============================================================================
 # REGRESSION TESTS — added in regression commit.
 # These tests would FAIL if the if/then/else blocks were collapsed into a flat

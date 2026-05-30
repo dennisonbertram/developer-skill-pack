@@ -1,0 +1,8 @@
+{
+  "goal_id": "goal-groomer-2026-004",
+  "groom_status": "skipped",
+  "issue_number": 88,
+  "issue_url": "https://github.com/acme/myapp/issues/88",
+  "skip_reason": "Issue already has status:in-progress label — skipping to avoid double-pickup.",
+  "recommended_next_step": "No action needed. Issue is already being worked on by an implementer."
+}
