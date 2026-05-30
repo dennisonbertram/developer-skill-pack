@@ -513,6 +513,329 @@ else
        "expected '[a-z0-9-]' or slug whitelist language in $AGENT_FILE"
 fi
 
+# ===========================================================================
+# NEW BEHAVIORAL TESTS — G1–G14 runtime-logic fixes (REVIEW-G1 findings)
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# BT-033 (GF1): reviewed_ready_this_run is ADDED TO in tier-2 before emitting result
+# The doc must state that each reviewed issue's number is added to the set BEFORE
+# emitting (not after, not conditionally).
+# ---------------------------------------------------------------------------
+if grep -qiE "add.*reviewed_ready_this_run|reviewed_ready_this_run.*add|ADD.*to.*reviewed_ready|before.*emit.*reviewed|reviewed_ready.*before.*emit" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-033 (GF1): doc states reviewed_ready_this_run is populated BEFORE emitting result"
+else
+  fail "BT-033 (GF1): doc states reviewed_ready_this_run is populated BEFORE emitting result" \
+       "expected explicit 'add ... reviewed_ready_this_run ... before emit' language in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-034 (GF1): tier-2 candidate query EXCLUDES already-reviewed issues
+# The query must filter out issues already in reviewed_ready_this_run.
+# ---------------------------------------------------------------------------
+if grep -qiE "exclud.*reviewed_ready|reviewed_ready.*exclud|filter.*reviewed_ready|reviewed_ready.*filter|not.*reviewed_ready|reviewed_ready.*not|exclude.*already.*reviewed" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-034 (GF1): tier-2 candidate query excludes issues already in reviewed_ready_this_run"
+else
+  fail "BT-034 (GF1): tier-2 candidate query excludes issues already in reviewed_ready_this_run" \
+       "expected tier-2 query to explicitly exclude reviewed_ready_this_run members in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-035 (GF1): empty tier-2 falls through to tier-3 (not loop back)
+# The doc must state that when tier-2 filtered set is empty, agent falls through
+# to tier-3 (terminal / WATCH sleep), guaranteeing termination.
+# ---------------------------------------------------------------------------
+if grep -qiE "fall.*through.*tier.3|fall.through.*terminal|filtered.*empty.*fall|empty.*filtered.*fall|all.*reviewed.*fall|tier.2.*empty.*terminal|fall.*through.*when.*empty|empty.*candidate.*fall" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-035 (GF1): empty tier-2 falls through to tier-3/terminal (termination guaranteed)"
+else
+  fail "BT-035 (GF1): empty tier-2 falls through to tier-3/terminal (termination guaranteed)" \
+       "expected explicit fall-through to tier-3 when filtered tier-2 set is empty in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-036 (GF1): ready-reviews do NOT consume the grooming budget
+# Skipped ready reviews must not count against max_issues_per_run.
+# ---------------------------------------------------------------------------
+if grep -qiE "ready.*not.*budget|ready.*do not.*budget|skipped.*not.*count|not.*consume.*budget|budget.*not.*ready|ready.review.*not.*count|not count.*grooming budget|do not consume" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-036 (GF1): doc states ready-review skips do NOT consume grooming budget"
+else
+  fail "BT-036 (GF1): doc states ready-review skips do NOT consume grooming budget" \
+       "expected explicit statement that ready-review skips don't count against max_issues_per_run in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-037 (GF3/GF4): attempt_budget counts ONLY retry/re-delegation cycles,
+# NOT first-pass phase delegations (happy path must not consume budget).
+# ---------------------------------------------------------------------------
+if grep -qiE "attempt_budget.*retry|retry.*attempt_budget|budget.*only.*retry|only.*retry.*budget|count.*only.*retry|retry.cycle.*budget|re.delegation.*budget|budget.*re.delegation" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-037 (GF3/GF4): attempt_budget counts only retry/re-delegation cycles (not first-pass delegations)"
+else
+  fail "BT-037 (GF3/GF4): attempt_budget counts only retry/re-delegation cycles" \
+       "expected explicit language that attempt_budget counts retries only (not happy-path delegations) in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-038 (GF2/GF3): budget/operational exhaustion routes to groom_status:failed, NOT blocked
+# The doc must state that attempt_budget exhaustion => failed (not blocked).
+# ---------------------------------------------------------------------------
+if grep -qiE "budget.*exhausted.*failed|exhausted.*groom_status.*failed|attempt_budget.*groom_status.*failed|operational.*failed|groom_status.*failed.*budget|failed.*not.*blocked.*budget|budget.*emit.*failed" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-038 (GF2/GF3): budget/operational exhaustion routes to groom_status:failed (not blocked)"
+else
+  fail "BT-038 (GF2/GF3): budget/operational exhaustion routes to groom_status:failed (not blocked)" \
+       "expected 'budget exhausted => groom_status:failed' language in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-039 (GF2/GF3): failed variant RELEASES the claim (removes status:grooming + unassigns)
+# When emitting failed, the agent must release the claim so the issue can be retried.
+# ---------------------------------------------------------------------------
+if grep -qiE "remove.*status:grooming.*fail|fail.*remove.*status:grooming|release.*claim.*fail|fail.*release.*claim|unassign.*fail|fail.*unassign|remove.*grooming.*label.*fail|emit.*failed.*release" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-039 (GF2/GF3): failed outcome releases claim (removes status:grooming and unassigns)"
+else
+  fail "BT-039 (GF2/GF3): failed outcome releases claim (removes status:grooming and unassigns)" \
+       "expected 'remove status:grooming' + 'unassign' on failure path in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-040 (GF2/GF3): operational/tooling failure is NEVER a blocked reason
+# The doc must reiterate the distinction: operational limit != blocked.
+# ---------------------------------------------------------------------------
+if grep -qiE "operational.*never.*block|never.*block.*operational|tooling.*never.*block|never.*block.*tooling|operational.*not.*block|not.*block.*operational" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-040 (GF2/GF3): doc states operational/tooling failures are NEVER a blocked reason"
+else
+  fail "BT-040 (GF2/GF3): doc states operational/tooling failures are NEVER a blocked reason" \
+       "expected 'operational ... never ... blocked' distinction in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-041 (GF8): explicit rollback path — on failure after claim, remove status:grooming
+# The doc must define a FAILURE/ROLLBACK path that triggers on errors after claim.
+# ---------------------------------------------------------------------------
+if grep -qiE "rollback|ROLLBACK|failure.*path|FAILURE.*path|rollback.on.fail|on.*failure.*rollback|failure.*rollback|remove.*grooming.*interrupt|interrupt.*remove.*grooming" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-041 (GF8): doc defines explicit FAILURE/ROLLBACK path after claim"
+else
+  fail "BT-041 (GF8): doc defines explicit FAILURE/ROLLBACK path after claim" \
+       "expected 'rollback' or 'FAILURE/ROLLBACK path' language in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-042 (GF8): startup stale-claim sweep — find + release abandoned status:grooming issues
+# The startup phase must sweep for stale grooming claims left from prior failures.
+# ---------------------------------------------------------------------------
+if grep -qiE "stale.*claim|claim.*stale|stale.*groom|startup.*sweep|sweep.*startup|sweep.*stale|stale.*sweep|abandoned.*claim|claim.*abandon" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-042 (GF8): startup phase includes stale-claim sweep for abandoned status:grooming issues"
+else
+  fail "BT-042 (GF8): startup phase includes stale-claim sweep for abandoned status:grooming issues" \
+       "expected 'stale claim sweep' or 'abandoned status:grooming' sweep in startup in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-043 (GF5): repo-wide kill precheck BEFORE tier-1
+# At the start of select, BEFORE any tier-1 candidate query, check for status:kill issues.
+# ---------------------------------------------------------------------------
+if grep -qiE "kill.*precheck|precheck.*kill|repo.wide.*kill|kill.*before.*tier|before.*tier.*kill|kill.*switch.*before.*select|select.*kill.*precheck|start of select.*kill|kill.*at.*start.*select" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-043 (GF5): repo-wide kill precheck at start of select (before tier-1)"
+else
+  fail "BT-043 (GF5): repo-wide kill precheck at start of select (before tier-1)" \
+       "expected 'kill precheck' or 'repo-wide kill' check before tier-1 select in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-044 (GF6): target_repo threaded into ALL gh commands via --repo
+# The doc must normalize target_repo at startup and thread it into every gh invocation.
+# ---------------------------------------------------------------------------
+if grep -qiE "\-\-repo.*target_repo|target_repo.*\-\-repo|\"\$target_repo\"|target_repo.*normalize|normalize.*target_repo|every.*gh.*\-\-repo|gh.*command.*\-\-repo" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-044 (GF6): target_repo normalized at startup and threaded into gh commands via --repo"
+else
+  fail "BT-044 (GF6): target_repo normalized at startup and threaded into gh commands via --repo" \
+       "expected '--repo \"\$target_repo\"' or target_repo normalization in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-045 (GF7): worker-investigation used for external docs; 'researcher' NOT referenced
+# The invented 'researcher' subagent must be replaced by worker-investigation.
+# ---------------------------------------------------------------------------
+if ! grep -qiE "^\| \*\*researcher\*\*|\| researcher |researcher.*subagent|spawn.*researcher\b|researcher.*external" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-045 (GF7): 'researcher' subagent NOT referenced (replaced by worker-investigation)"
+else
+  fail "BT-045 (GF7): 'researcher' subagent NOT referenced (replaced by worker-investigation)" \
+       "found 'researcher' reference in subagent table or usage — must be replaced with worker-investigation in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-046 (GF9): scribe Write primitive used for body/comment files (no heredoc for untrusted)
+# The write phase must delegate file creation to scribe (Write tool), not use shell heredocs
+# for untrusted content.
+# ---------------------------------------------------------------------------
+if grep -qiE "scribe.*write.*body|scribe.*write.*file|scribe.*body.file|delegate.*scribe.*body|body.*file.*scribe|write.*body.*scribe" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-046 (GF9): scribe Write primitive used to create body/comment files (not heredoc)"
+else
+  fail "BT-046 (GF9): scribe Write primitive used to create body/comment files (not heredoc)" \
+       "expected 'scribe ... Write ... body file' delegation for untrusted content in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-047 (GF9): <<'EOF' heredoc NOT used for untrusted content (injection vector eliminated)
+# The doc must not rely on heredoc injection for untrusted issue bodies.
+# ---------------------------------------------------------------------------
+# The current doc uses <<'EOF' in write phase for issue body. After fix it should be gone
+# from the write-phase and untrusted-content section, replaced by scribe Write calls.
+# We check that the doc explicitly WARNS against heredoc-for-untrusted, not just avoids it.
+if grep -qiE "heredoc.*inject|inject.*heredoc|EOF.*inject|EOF.*break|break.*out.*EOF|EOF.*untrusted|untrusted.*EOF|never.*heredoc.*untrusted|heredoc.*vector" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-047 (GF9): doc warns against heredoc injection vector for untrusted content"
+else
+  fail "BT-047 (GF9): doc warns against heredoc injection vector for untrusted content" \
+       "expected heredoc injection warning in $AGENT_FILE (use scribe Write, not <<'EOF' for untrusted)"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-048 (GF10): TOCTOU re-fetch checks OPEN + ZERO status labels (not only status:kill)
+# The pre-claim re-fetch must abort unless issue is still OPEN and has no status:* labels.
+# ---------------------------------------------------------------------------
+if grep -qiE "still.*open.*status.less|open.*zero.*status|no.*status.*label.*re.fetch|re.fetch.*open.*no.*status|TOCTOU|toctou|still.*open.*no.*status|re.fetch.*zero.*status" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-048 (GF10): TOCTOU re-fetch checks still-open + zero status:* labels (not only kill)"
+else
+  fail "BT-048 (GF10): TOCTOU re-fetch checks still-open + zero status:* labels (not only kill)" \
+       "expected TOCTOU re-fetch to verify 'still open AND no status:* labels' in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-049 (GF11): WATCH activates ONLY on explicit watch=true (no implicit activation)
+# The doc must state watch is explicit-only, removing the implicit-activation clause.
+# ---------------------------------------------------------------------------
+if grep -qiE "watch.*only.*explicit|explicit.*watch.*only|watch.*activate.*explicit|explicit.*watch.*true|watch.*true.*only|only.*when.*watch.*true|ONLY when.*watch.*true" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-049 (GF11): WATCH activates ONLY on explicit watch=true (no implicit activation)"
+else
+  fail "BT-049 (GF11): WATCH activates ONLY on explicit watch=true (no implicit activation)" \
+       "expected 'WATCH only when watch:true is explicitly passed' in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-050 (GF12): per-run state reset AFTER poll_interval sleep (before returning to select)
+# In WATCH mode, reviewed_ready_this_run and per-run counters must reset each cycle.
+# ---------------------------------------------------------------------------
+if grep -qiE "reset.*reviewed_ready|reviewed_ready.*reset|reset.*per.run.*watch|watch.*reset.*per.run|reset.*counters.*sleep|sleep.*reset.*counter|cycle.*reset|reset.*each.*cycle|reset.*watch.*cycle" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-050 (GF12): per-run state reset after poll_interval sleep (each watch cycle fresh)"
+else
+  fail "BT-050 (GF12): per-run state reset after poll_interval sleep (each watch cycle fresh)" \
+       "expected 'reset reviewed_ready_this_run ... after sleep' or 'reset ... each cycle' in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-051 (GF13): drifted-ready write path — scribe writes comment file, worker runs gh issue comment
+# A ready ticket that has drifted needs a defined write path (not just 'comment and skip').
+# ---------------------------------------------------------------------------
+if grep -qiE "drifted.*ready.*write|drifted.*write.*path|write.*path.*drift|drift.*write.*branch|drifted.*comment.*file|comment.*file.*drifted|drifted.*scribe|scribe.*drifted" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-051 (GF13): drifted-ready write path defined (scribe writes file, worker runs gh issue comment)"
+else
+  fail "BT-051 (GF13): drifted-ready write path defined (scribe writes file, worker runs gh issue comment)" \
+       "expected explicit drifted-ready write path with scribe+worker in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-052 (GF14): select pagination documented — either paginate to exhaustion or document the limit
+# The doc must address pagination beyond --limit 200 for large backlogs.
+# ---------------------------------------------------------------------------
+if grep -qiE "paginate|pagination|paginate.*exhaustion|exhaustion.*paginate|page.*through|page-through|known.*limit|limit.*constraint|document.*limit.*known|pagination.*large" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-052 (GF14): select pagination addressed (paginate to exhaustion or document constraint)"
+else
+  fail "BT-052 (GF14): select pagination addressed (paginate to exhaustion or document constraint)" \
+       "expected pagination strategy or known-limit documentation for large backlogs in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-053 (GF2/schema): groom_status:failed variant documented with failure_reason field
+# The schema regression-notes require a 'failed' variant. The agent doc must document it.
+# ---------------------------------------------------------------------------
+if grep -qiE "groom_status.*failed|groom_status:.*\"failed\"|Variant.*failed.*groom|failed.*groom_status|failure_reason" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-053 (GF2): groom_status:failed variant documented with failure_reason"
+else
+  fail "BT-053 (GF2): groom_status:failed variant documented with failure_reason" \
+       "expected 'failed' groom_status variant with failure_reason in $AGENT_FILE"
+fi
+
+# ===========================================================================
+# NEW REGRESSION TESTS — protect the G1–G14 fixes from future reversion
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# RT-012: reviewed_ready_this_run populated AND excluded in tier-2 query (GF1 cannot regress)
+# Both add-before-emit AND exclude-from-query must be present.
+# ---------------------------------------------------------------------------
+has_add_before=$(grep -ciE "add.*reviewed_ready_this_run|reviewed_ready_this_run.*add|ADD.*to.*reviewed_ready|before.*emit.*reviewed|reviewed_ready.*before.*emit" "$AGENT_FILE" 2>/dev/null || true)
+has_exclude=$(grep -ciE "exclud.*reviewed_ready|reviewed_ready.*exclud|filter.*reviewed_ready|reviewed_ready.*filter|not.*reviewed_ready" "$AGENT_FILE" 2>/dev/null || true)
+if [ "${has_add_before:-0}" -gt 0 ] && [ "${has_exclude:-0}" -gt 0 ]; then
+  pass "RT-012 (GF1): anti-infinite guard: both populate-before-emit AND exclude-from-query documented"
+else
+  fail "RT-012 (GF1): anti-infinite guard: both populate-before-emit AND exclude-from-query documented" \
+       "add_before_emit_count=$has_add_before, exclude_count=$has_exclude — need both > 0 in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# RT-013: attempt_budget semantics — retry-only AND failed-not-blocked (GF3/GF4 cannot regress)
+# Both the retry-only definition AND the failed routing must be present.
+# ---------------------------------------------------------------------------
+has_retry_only=$(grep -ciE "attempt_budget.*retry|retry.*attempt_budget|budget.*only.*retry|only.*retry.*budget|count.*only.*retry" "$AGENT_FILE" 2>/dev/null || true)
+has_failed_route=$(grep -ciE "budget.*exhausted.*failed|exhausted.*groom_status.*failed|attempt_budget.*groom_status.*failed|groom_status.*failed.*budget" "$AGENT_FILE" 2>/dev/null || true)
+if [ "${has_retry_only:-0}" -gt 0 ] && [ "${has_failed_route:-0}" -gt 0 ]; then
+  pass "RT-013 (GF3/GF4): attempt_budget: retry-only semantics AND failed-not-blocked routing both documented"
+else
+  fail "RT-013 (GF3/GF4): attempt_budget: retry-only semantics AND failed-not-blocked routing both documented" \
+       "retry_only_count=$has_retry_only, failed_route_count=$has_failed_route — need both > 0 in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# RT-014: rollback path + startup sweep both present (GF8 cannot regress)
+# ---------------------------------------------------------------------------
+has_rollback=$(grep -ciE "rollback|ROLLBACK|failure.*path|FAILURE.*path" "$AGENT_FILE" 2>/dev/null || true)
+has_sweep=$(grep -ciE "stale.*claim|claim.*stale|stale.*groom|startup.*sweep|sweep.*startup|sweep.*stale|stale.*sweep" "$AGENT_FILE" 2>/dev/null || true)
+if [ "${has_rollback:-0}" -gt 0 ] && [ "${has_sweep:-0}" -gt 0 ]; then
+  pass "RT-014 (GF8): rollback-on-failure path AND startup stale-claim sweep both documented"
+else
+  fail "RT-014 (GF8): rollback-on-failure path AND startup stale-claim sweep both documented" \
+       "rollback_count=$has_rollback, sweep_count=$has_sweep — need both > 0 in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# RT-015: worker-investigation replaces researcher AND target_repo threaded (GF6/GF7 cannot regress)
+# ---------------------------------------------------------------------------
+no_researcher=$(! grep -qiE "^\| \*\*researcher\*\*|\| researcher |spawn.*researcher\b" "$AGENT_FILE" 2>/dev/null && echo 1 || echo 0)
+has_repo_flag=$(grep -ciE "\-\-repo.*target_repo|target_repo.*\-\-repo|\"\$target_repo\"" "$AGENT_FILE" 2>/dev/null || true)
+if [ "$no_researcher" = "1" ] && [ "${has_repo_flag:-0}" -gt 0 ]; then
+  pass "RT-015 (GF6/GF7): researcher removed AND --repo \$target_repo threaded into gh commands"
+else
+  fail "RT-015 (GF6/GF7): researcher removed AND --repo \$target_repo threaded into gh commands" \
+       "no_researcher=$no_researcher (1=good), repo_flag_count=$has_repo_flag — need no_researcher=1 and repo_flag>0 in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# RT-016: WATCH explicit-only + per-cycle reset both documented (GF11/GF12 cannot regress)
+# ---------------------------------------------------------------------------
+has_explicit_watch=$(grep -ciE "watch.*only.*explicit|explicit.*watch.*only|ONLY when.*watch.*true|only.*when.*watch.*true|watch.*activate.*explicit" "$AGENT_FILE" 2>/dev/null || true)
+has_cycle_reset=$(grep -ciE "reset.*reviewed_ready|reviewed_ready.*reset|reset.*per.run.*watch|cycle.*reset|reset.*each.*cycle|reset.*watch.*cycle" "$AGENT_FILE" 2>/dev/null || true)
+if [ "${has_explicit_watch:-0}" -gt 0 ] && [ "${has_cycle_reset:-0}" -gt 0 ]; then
+  pass "RT-016 (GF11/GF12): WATCH explicit-activation AND per-cycle state reset both documented"
+else
+  fail "RT-016 (GF11/GF12): WATCH explicit-activation AND per-cycle state reset both documented" \
+       "explicit_watch_count=$has_explicit_watch, cycle_reset_count=$has_cycle_reset — need both > 0 in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# RT-017: five groom_status variants documented — including 'failed' (cannot remove one)
+# ---------------------------------------------------------------------------
+all_five_variants=0
+for variant in "ready" "blocked" "skipped" "terminal" "failed"; do
+  if grep -qiE "groom_status.*\"${variant}\"|groom_status:.*${variant}|Variant.*${variant}.*groom|${variant}.*groom_status|failure_reason" "$AGENT_FILE" 2>/dev/null; then
+    all_five_variants=$((all_five_variants + 1))
+  fi
+done
+if [ "$all_five_variants" -eq 5 ]; then
+  pass "RT-017: all five groom_status variants documented (ready/blocked/skipped/terminal/failed)"
+else
+  fail "RT-017: all five groom_status variants documented" \
+       "only found $all_five_variants of 5 variants (ready/blocked/skipped/terminal/failed) in $AGENT_FILE"
+fi
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
