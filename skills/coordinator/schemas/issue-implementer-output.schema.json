@@ -1,0 +1,201 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/dennisonbertram/developer-skill-pack/schemas/issue-implementer-output.schema.json",
+  "title": "Issue Implementer Output",
+  "description": "Output contract for the `issue-implementer` agent. One object per goal (one issue → one PR). The agent loops autonomously through status:ready issues until no ready issues remain or a stop condition is triggered.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "goal_id",
+    "issue_number",
+    "issue_url",
+    "loop_status",
+    "claim_evidence",
+    "files_changed",
+    "behavioral_tests",
+    "blocked",
+    "pr_url",
+    "recommended_next_step"
+  ],
+  "if": {
+    "properties": {
+      "blocked": { "const": true }
+    },
+    "required": ["blocked"]
+  },
+  "then": {
+    "required": ["blocked_reason"]
+  },
+  "properties": {
+    "goal_id": {
+      "type": "string",
+      "description": "Unique identifier for this goal instance, e.g. 'goal-2026-001'.",
+      "minLength": 1
+    },
+    "issue_number": {
+      "type": "integer",
+      "description": "GitHub issue number that this goal addresses.",
+      "minimum": 1
+    },
+    "issue_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Full URL of the GitHub issue, e.g. 'https://github.com/acme/myapp/issues/42'."
+    },
+    "loop_status": {
+      "type": "string",
+      "enum": ["completed", "blocked", "terminal"],
+      "description": "Outcome of this goal cycle. 'completed' = PR opened; 'blocked' = could not complete, labeled status:blocked; 'terminal' = no more ready issues."
+    },
+    "claim_evidence": {
+      "type": "object",
+      "description": "Evidence that the issue was atomically claimed before work began.",
+      "additionalProperties": false,
+      "required": ["label_swap_confirmed", "self_assign_confirmed"],
+      "properties": {
+        "label_swap_confirmed": {
+          "type": "boolean",
+          "description": "True if the status:ready label was swapped to status:in-progress."
+        },
+        "self_assign_confirmed": {
+          "type": "boolean",
+          "description": "True if the issue was self-assigned to prevent double-pickup."
+        }
+      }
+    },
+    "files_changed": {
+      "type": "array",
+      "description": "Absolute file paths created or modified during implementation.",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "audit_trail_commits": {
+      "type": "object",
+      "description": "The three-commit TDD audit trail (red → green → regression). Use {\"status\": \"n/a — no git\"} for each stage if the project has no git repository.",
+      "additionalProperties": false,
+      "required": ["red", "green", "regression"],
+      "properties": {
+        "red":        { "$ref": "#/$defs/commit_or_na" },
+        "green":      { "$ref": "#/$defs/commit_or_na" },
+        "regression": { "$ref": "#/$defs/commit_or_na" }
+      }
+    },
+    "tdd_evidence": {
+      "type": "object",
+      "description": "Verbatim test runner output captured at each TDD commit stage.",
+      "additionalProperties": false,
+      "required": ["failing_before_implementation", "passing_after_implementation", "full_suite_at_regression"],
+      "properties": {
+        "failing_before_implementation": {
+          "type": "string",
+          "description": "Failing test output captured at the red commit. Must not be empty for git-enabled projects.",
+          "minLength": 1
+        },
+        "passing_after_implementation": {
+          "type": "string",
+          "description": "Passing test output captured at the green commit.",
+          "minLength": 1
+        },
+        "full_suite_at_regression": {
+          "type": "string",
+          "description": "Full test suite output or summary captured at the regression commit.",
+          "minLength": 1
+        }
+      }
+    },
+    "behavioral_tests": {
+      "type": "array",
+      "description": "Behavioral tests written for the issue's Definition of Done, each mapped to a spec.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["spec_id", "description", "status"],
+        "properties": {
+          "spec_id":     { "type": "string", "description": "e.g. 'BT-001'.", "minLength": 1 },
+          "description": { "type": "string", "description": "The behavior under test.", "minLength": 1 },
+          "status":      { "type": "string", "enum": ["pass", "fail"] }
+        }
+      },
+      "minItems": 1
+    },
+    "regression_tests": {
+      "type": "array",
+      "description": "Regression tests added, with what future breakage each catches.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["test_name", "catches"],
+        "properties": {
+          "test_name": { "type": "string", "minLength": 1 },
+          "catches":   { "type": "string", "description": "What breakage this test catches if the feature/fix is later reverted.", "minLength": 1 }
+        }
+      }
+    },
+    "pr_url": {
+      "description": "URL of the opened pull request. null when loop_status is 'blocked' or 'terminal'.",
+      "oneOf": [
+        { "type": "string", "format": "uri" },
+        { "type": "null" }
+      ]
+    },
+    "dod_checklist_results": {
+      "type": "array",
+      "description": "Issue Definition of Done checklist items with pass/fail/skipped status.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["item", "status"],
+        "properties": {
+          "item":   { "type": "string", "minLength": 1 },
+          "status": { "type": "string", "enum": ["pass", "fail", "skipped"] }
+        }
+      }
+    },
+    "blocked": {
+      "type": "boolean",
+      "description": "True when the agent could not complete the issue and has labeled it status:blocked."
+    },
+    "blocked_reason": {
+      "type": "string",
+      "description": "Required when blocked=true. Detailed groomer-facing explanation of what is missing or blocking. Should be actionable.",
+      "minLength": 1
+    },
+    "run_stop_reason": {
+      "description": "Reason the agent loop stopped after this goal, if applicable. null when the loop will continue to the next issue.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": ["max_issues_reached", "kill_switch", "no_ready_issues", "ci_retry_budget_exhausted"]
+        },
+        { "type": "null" }
+      ]
+    },
+    "recommended_next_step": {
+      "type": "string",
+      "description": "Specific recommendation for what should happen next (human reviewer, coordinator, or groomer).",
+      "minLength": 1
+    }
+  },
+  "$defs": {
+    "commit_or_na": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["hash", "subject"],
+          "properties": {
+            "hash":    { "type": "string", "pattern": "^[0-9a-f]{7,40}$", "description": "Git commit hash (7-40 hex chars)." },
+            "subject": { "type": "string", "minLength": 1, "description": "Commit subject line." }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": {
+            "status": { "const": "n/a — no git", "description": "Project has no git repository." }
+          }
+        }
+      ]
+    }
+  }
+}

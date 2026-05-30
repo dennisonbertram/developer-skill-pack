@@ -17,6 +17,7 @@ These JSON Schemas (Draft 2020-12) are the canonical contracts for each agent's 
 | `ux-tester-output.schema.json` | `ux-tester` | Usability assessment |
 | `system-tester-output.schema.json` | `system-tester` | Integration & coverage assessment |
 | `scribe-output.schema.json` | `scribe` | File write confirmation |
+| `issue-implementer-output.schema.json` | `issue-implementer` | Per-goal output: issue claim evidence, TDD audit trail, PR URL, DoD checklist, blocked state |
 
 ## Validating output
 
