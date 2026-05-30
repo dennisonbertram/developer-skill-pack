@@ -64,8 +64,17 @@ else
 fi
 
 # Fail if the file contains any obvious token-like 40+ char alphanumeric run
-# (heuristic: a line that has a 40-char hex or base64-ish string not in a comment)
-SUSPICIOUS=$(grep -oE '[A-Za-z0-9_-]{40,}' "$SCRIPT" 2>/dev/null | grep -v '^#' | grep -v 'platformproxy' | grep -v 'gamutagents' | grep -v 'ANTHROPIC' | grep -v 'GAMUT_AUTH_TOKEN' | grep -v 'dangerously' | grep -v 'issue.groomer\|issue.implementer\|issue-groomer\|issue-implementer' || true)
+# (heuristic: 40+ consecutive alphanumeric/underscore chars that look like
+# a credential, not a separator comment line of dashes).
+# We exclude known-safe long strings (URLs, env var names, flag names).
+SUSPICIOUS=$(grep -oE '[A-Za-z0-9_]{40,}' "$SCRIPT" 2>/dev/null \
+  | grep -v '^ANTHROPIC' \
+  | grep -v '^GAMUT_AUTH_TOKEN' \
+  | grep -v 'platformproxy' \
+  | grep -v 'gamutagents' \
+  | grep -v 'dangerously' \
+  | grep -v 'issue_groomer\|issue_implementer' \
+  || true)
 if [[ -n "$SUSPICIOUS" ]]; then
   fail "SECURITY: possible long token-like string found in script: $SUSPICIOUS"
 else
