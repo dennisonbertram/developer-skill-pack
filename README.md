@@ -23,6 +23,7 @@ Works with **Claude Code** and **OpenAI Codex CLI**.
 | Skill | Description |
 |-------|-------------|
 | **coordinator** | Pure-delegation control plane with a 10-phase state machine. Plans, delegates, reviews, and learns. 14 specialized agents with JSON Schema output contracts. |
+| **issue-implementer** | Autonomous backlog agent. Claims `status:ready` issues, drives each to a tested PR (red → green → regression commits), then loops until the backlog is clear or a stop condition trips. Sequential v1 — one instance per repo. |
 | **mine-transcripts** | Sweep sub-agent JSONL transcripts for novel learnings and promote the strongest to durable docs. Parallel mining with dedupe baseline. |
 
 ### Development Process (from [partyline](https://github.com/dennisonbertram/partyline) + [synthetix](https://github.com/dennisonbertram/synthetix))
@@ -97,7 +98,15 @@ Creates GitHub issue templates, PR template, hooks, and process docs.
 
 Enters the 10-phase state machine: intake → plan → delegate → integrate → review → test → validate → close.
 
-### 3. Generate UX stories
+### 3. Work the backlog autonomously
+
+```
+--agent issue-implementer
+```
+
+Claims `status:ready` issues one at a time → TDD implementation → tested PR → loops until the backlog is clear (or `max_issues_per_run` is reached). Unattended after invocation. See the [issue-implementer runbook](skills/coordinator/docs/issue-implementer-runbook.md) for preconditions, label setup, stop conditions, and first-run guidance.
+
+### 5. Generate UX stories
 
 ```
 /ux-paths
@@ -105,7 +114,7 @@ Enters the 10-phase state machine: intake → plan → delegate → integrate �
 
 Analyzes the codebase and produces a catalog of user journey stories.
 
-### 4. Walk the stories through a browser
+### 6. Walk the stories through a browser
 
 ```
 /ux-walker http://localhost:3000
@@ -113,13 +122,13 @@ Analyzes the codebase and produces a catalog of user journey stories.
 
 Tests each story for correctness, visual quality, and UX excellence.
 
-### 5. Research before adopting
+### 7. Research before adopting
 
 ```
 /research-spike "Should we use Prisma or Drizzle for the ORM?"
 ```
 
-### 6. Debug a bug
+### 8. Debug a bug
 
 ```
 /debug
@@ -127,7 +136,7 @@ Tests each story for correctness, visual quality, and UX excellence.
 
 7-phase deterministic workflow: symptom → archaeology → reproduce → logs → hypothesis → fix → regression test.
 
-### 7. Mine session transcripts for learnings
+### 9. Mine session transcripts for learnings
 
 ```
 /mine-transcripts
@@ -135,13 +144,37 @@ Tests each story for correctness, visual quality, and UX excellence.
 
 Discovers sub-agent JSONLs, mines them in parallel for dead ends, silently-recovered errors, and design sub-decisions, then promotes high-confidence findings to durable docs.
 
-### 8. Guard against regressions
+### 10. Guard against regressions
 
 ```
 /regression-guard
 ```
 
 Generates unit and regression tests for the last fix.
+
+---
+
+## Autonomous Backlog Implementation (issue-implementer)
+
+The `issue-implementer` agent turns a groomed GitHub issue backlog into merged, tested pull requests with no human involvement between invocation and completion.
+
+**What it does:** Claims the oldest `status:ready` issue → grounds itself against the codebase → delegates a TDD worker (red → green → regression commits) → runs review and test passes → opens a PR whose body contains the full DoD checklist, audit-trail commit links, and a collapsible machine-readable report → closes the issue → loops to the next ready issue. Stops when the backlog is clear, `max_issues_per_run` is reached, or a stop condition trips.
+
+**How to start:**
+
+```
+--agent issue-implementer
+```
+
+For a cautious first run (one issue only):
+
+```
+--agent issue-implementer max_issues_per_run=1
+```
+
+**V1 constraint:** sequential and single-instance only. Never run two issue-implementer instances against the same repo simultaneously — the claim is not truly atomic and two concurrent instances can double-pick the same issue.
+
+For the full runbook — preconditions, label setup with exact `gh label create` commands, stop conditions, kill switch, and first-run guidance — see [`skills/coordinator/docs/issue-implementer-runbook.md`](skills/coordinator/docs/issue-implementer-runbook.md).
 
 ---
 

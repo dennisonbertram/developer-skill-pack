@@ -34,7 +34,7 @@ If invoked with no arguments, the coordinator enters the `intake` phase and asks
 | **intent-validator** | Opus | Read, Glob, Grep | Validates work matches user's original intent. Foreground. |
 | **learning-extractor** | Opus | Read, Glob, Grep, Bash | Surfaces learnings from task artifacts and transcripts. |
 | **scribe** | Haiku | Read, Write | Writes all state files. |
-| **issue-implementer** | Opus | Agent | Autonomous groomed-backlog → tested-PR loop. Claims status:ready issues, implements each via TDD workers in dedicated worktrees, opens a PR, then loops to the next ready issue. |
+| **issue-implementer** | Opus | Agent | Autonomous groomed-backlog → tested-PR loop. Claims status:ready issues, implements each via TDD workers in dedicated worktrees, opens a PR, then loops to the next ready issue. Started via `--agent issue-implementer`; runs unattended after invocation. See [docs/issue-implementer-runbook.md](docs/issue-implementer-runbook.md) for preconditions, label setup, stop conditions, and first-run guidance. |
 
 ## State Machine
 
