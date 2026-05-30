@@ -15,6 +15,10 @@
 #  11. --limit flag on gh queries + client-side sort
 #  12. WATCH mode + poll_interval + run_stop_reason distinctions
 #  13. issue-groomer-settings.json denies Edit/Write/Bash
+#  14. GF16: blocked write path orders body-edit -> comment -> label-swap (swap is FINAL mutation)
+#  15. GF16: FAILURE/ROLLBACK defensively removes status:grooming + status:blocked + status:ready
+#  16. GF16: groom_status:failed always leaves issue genuinely status-less (retryable)
+#  17. GF17: gh label create setup examples include --repo "$target_repo"
 #
 # Run from any directory — the script resolves its own location.
 #
