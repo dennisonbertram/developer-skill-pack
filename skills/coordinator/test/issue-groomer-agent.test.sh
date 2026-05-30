@@ -459,8 +459,8 @@ fi
 # RT-007: WATCH mode documentation cannot be removed
 # Specifically checks that both in-process sleep AND external cron are mentioned.
 # ---------------------------------------------------------------------------
-if grep -qiE "WATCH.*mode\|watch.mode\|poll_interval" "$AGENT_FILE" 2>/dev/null && \
-   grep -qiE "cron\|external.*schedule\|in.process.*sleep" "$AGENT_FILE" 2>/dev/null; then
+if grep -qiE "WATCH.*mode|watch.mode|poll_interval" "$AGENT_FILE" 2>/dev/null && \
+   grep -qiE "cron|external.*schedule|in.process.*sleep" "$AGENT_FILE" 2>/dev/null; then
   pass "RT-007: WATCH mode preserved with both in-process sleep and cron/external-schedule docs"
 else
   fail "RT-007: WATCH mode preserved with both in-process sleep and cron/external-schedule docs" \
@@ -486,7 +486,7 @@ fi
 # ---------------------------------------------------------------------------
 # RT-009: escalation_reason preserved as required for blocked variant
 # ---------------------------------------------------------------------------
-if grep -qiE "escalation_reason.*required\|required.*escalation_reason\|blocked.*escalation_reason\|escalation_reason.*blocked" "$AGENT_FILE" 2>/dev/null; then
+if grep -qiE "escalation_reason.*required|required.*escalation_reason|blocked.*escalation_reason|escalation_reason.*blocked" "$AGENT_FILE" 2>/dev/null; then
   pass "RT-009: escalation_reason preserved as required for blocked variant"
 else
   fail "RT-009: escalation_reason preserved as required for blocked variant" \
