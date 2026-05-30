@@ -184,6 +184,119 @@ else
        "expected exit 1, got exit $rc — output: $out"
 fi
 
+# =============================================================================
+# REGRESSION TESTS — added in regression commit.
+# These tests would FAIL if the schema were reverted to the original flat
+# required-list or if the if/then blocks were removed.
+# =============================================================================
+
+# --- RT-S01: blocked goal with blocked:false fails (const enforcement) ---
+# The completed branch enforces blocked:false; the blocked branch enforces
+# blocked:true. A blocked loop_status with blocked:false must fail.
+# If the if/then enforcement were removed, this would pass incorrectly.
+BLOCKED_FALSE="$TMPDIR_TEST/blocked-with-false.json"
+cat > "$BLOCKED_FALSE" <<'ENDJSON'
+{
+  "goal_id": "goal-regression-01",
+  "issue_number": 60,
+  "issue_url": "https://github.com/acme/myapp/issues/60",
+  "loop_status": "blocked",
+  "claim_evidence": { "label_swap_confirmed": true, "self_assign_confirmed": true },
+  "blocked": false,
+  "blocked_reason": "Some blocker exists.",
+  "pr_url": null,
+  "recommended_next_step": "Fix the blocker."
+}
+ENDJSON
+out=$(cd "$COORD_DIR" && ./coord-validate issue-implementer "$BLOCKED_FALSE" 2>&1); rc=$?
+if [ "$rc" -eq 1 ]; then
+  pass "RT-S01: blocked loop_status with blocked:false -> exit 1 (const enforcement)"
+else
+  fail "RT-S01: blocked loop_status with blocked:false -> exit 1 (const enforcement)" \
+       "expected exit 1, got exit $rc — output: $out"
+fi
+
+# --- RT-S02: terminal goal missing run_stop_reason fails ---
+# The terminal branch requires run_stop_reason. If the if/then were removed,
+# this would not be enforced and the missing field would pass silently.
+TERMINAL_NO_STOP="$TMPDIR_TEST/terminal-no-stop.json"
+cat > "$TERMINAL_NO_STOP" <<'ENDJSON'
+{
+  "goal_id": "goal-regression-02",
+  "loop_status": "terminal",
+  "pr_url": null,
+  "recommended_next_step": "Backlog is exhausted."
+}
+ENDJSON
+out=$(cd "$COORD_DIR" && ./coord-validate issue-implementer "$TERMINAL_NO_STOP" 2>&1); rc=$?
+if [ "$rc" -eq 1 ]; then
+  pass "RT-S02: terminal goal missing run_stop_reason -> exit 1"
+else
+  fail "RT-S02: terminal goal missing run_stop_reason -> exit 1" \
+       "expected exit 1, got exit $rc — output: $out"
+fi
+
+# --- RT-S03: completed goal missing audit_trail_commits fails ---
+# Completing an issue requires the TDD audit trail. If the completed branch
+# if/then were reverted, audit_trail_commits would no longer be required.
+COMPLETED_NO_AUDIT="$TMPDIR_TEST/completed-no-audit.json"
+cat > "$COMPLETED_NO_AUDIT" <<'ENDJSON'
+{
+  "goal_id": "goal-regression-03",
+  "issue_number": 70,
+  "issue_url": "https://github.com/acme/myapp/issues/70",
+  "loop_status": "completed",
+  "claim_evidence": { "label_swap_confirmed": true, "self_assign_confirmed": true },
+  "files_changed": ["/abs/path/file.ts"],
+  "tdd_evidence": {
+    "failing_before_implementation": "FAIL",
+    "passing_after_implementation": "PASS",
+    "full_suite_at_regression": "Tests: 1 passed"
+  },
+  "behavioral_tests": [
+    { "spec_id": "BT-001", "description": "feature works", "status": "pass" }
+  ],
+  "dod_checklist_results": [
+    { "item": "Tests pass", "status": "pass" }
+  ],
+  "blocked": false,
+  "pr_url": "https://github.com/acme/myapp/pull/71",
+  "recommended_next_step": "Review the PR."
+}
+ENDJSON
+out=$(cd "$COORD_DIR" && ./coord-validate issue-implementer "$COMPLETED_NO_AUDIT" 2>&1); rc=$?
+if [ "$rc" -eq 1 ]; then
+  pass "RT-S03: completed goal missing audit_trail_commits -> exit 1"
+else
+  fail "RT-S03: completed goal missing audit_trail_commits -> exit 1" \
+       "expected exit 1, got exit $rc — output: $out"
+fi
+
+# --- RT-S04: blocked goal with valid pr_url string fails (pr_url must be null) ---
+# A blocked issue must have pr_url:null. If the blocked branch cross-field
+# enforcement were removed, a pr_url string would be silently accepted.
+BLOCKED_WITH_PR="$TMPDIR_TEST/blocked-with-pr.json"
+cat > "$BLOCKED_WITH_PR" <<'ENDJSON'
+{
+  "goal_id": "goal-regression-04",
+  "issue_number": 80,
+  "issue_url": "https://github.com/acme/myapp/issues/80",
+  "loop_status": "blocked",
+  "claim_evidence": { "label_swap_confirmed": true, "self_assign_confirmed": true },
+  "blocked": true,
+  "blocked_reason": "Cannot proceed due to external API instability.",
+  "pr_url": "https://github.com/acme/myapp/pull/81",
+  "recommended_next_step": "Fix the blocker."
+}
+ENDJSON
+out=$(cd "$COORD_DIR" && ./coord-validate issue-implementer "$BLOCKED_WITH_PR" 2>&1); rc=$?
+if [ "$rc" -eq 1 ]; then
+  pass "RT-S04: blocked goal with pr_url string -> exit 1 (pr_url must be null for blocked)"
+else
+  fail "RT-S04: blocked goal with pr_url string -> exit 1 (pr_url must be null for blocked)" \
+       "expected exit 1, got exit $rc — output: $out"
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 echo ""
