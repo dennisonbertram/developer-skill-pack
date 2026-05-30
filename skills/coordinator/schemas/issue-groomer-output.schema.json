@@ -89,6 +89,25 @@
           "recommended_next_step"
         ]
       }
+    },
+    {
+      "if": {
+        "properties": { "groom_status": { "const": "failed" } },
+        "required": ["groom_status"]
+      },
+      "then": {
+        "required": [
+          "goal_id",
+          "groom_status",
+          "issue_number",
+          "issue_url",
+          "failure_reason",
+          "recommended_next_step"
+        ],
+        "properties": {
+          "failure_reason": { "type": "string", "minLength": 1 }
+        }
+      }
     }
   ],
   "properties": {
@@ -99,8 +118,8 @@
     },
     "groom_status": {
       "type": "string",
-      "enum": ["ready", "blocked", "skipped", "terminal"],
-      "description": "Outcome of this grooming cycle. 'ready' = issue fully groomed with clear implementation path, status:ready applied; 'blocked' = exhaustively groomed but a genuine product/path decision is needed by a human, status:blocked applied; 'skipped' = issue already had a status label (no grooming needed); 'terminal' = no more status-less issues to groom."
+      "enum": ["ready", "blocked", "skipped", "terminal", "failed"],
+      "description": "Outcome of this grooming cycle. 'ready' = issue fully groomed with clear implementation path, status:ready applied; 'blocked' = exhaustively groomed but a genuine product/path decision is needed by a human, status:blocked applied; 'skipped' = issue already had a status label (no grooming needed); 'terminal' = no more status-less issues to groom; 'failed' = operational/budget failure that prevented grooming completion (NOT a product decision — retry after adjusting limits)."
     },
     "issue_number": {
       "type": "integer",
@@ -114,7 +133,7 @@
     },
     "claim_evidence": {
       "type": "object",
-      "description": "Evidence that the issue was atomically claimed before grooming began (status-less -> status:grooming).",
+      "description": "Best-effort claim evidence; the label-swap claim is non-atomic in v1 (sequential/single-instance only). Records the status-less -> status:grooming transition attempt before grooming began.",
       "additionalProperties": false,
       "required": ["label_swap_confirmed", "self_assign_confirmed"],
       "properties": {
@@ -209,6 +228,11 @@
       "type": "string",
       "description": "Required when groom_status=terminal. Reason the agent loop stopped. 'max_issues_reached' = max_issues_per_run limit hit; 'kill_switch' = status:kill label detected; 'no_status_less_issues' = backlog exhausted in one-shot mode (permanent terminal — no more issues to groom); 'watch_poll_wait' = transient terminal — groomer is entering a WATCH-mode sleep cycle and will re-check after poll_interval (re-check scheduled, not a permanent stop).",
       "enum": ["max_issues_reached", "kill_switch", "no_status_less_issues", "watch_poll_wait"]
+    },
+    "failure_reason": {
+      "type": "string",
+      "description": "Required when groom_status=failed. Describes the operational or budget failure that prevented grooming completion. Must NOT be used when groom_status is ready, blocked, skipped, or terminal. minLength:1 ensures the string is non-empty.",
+      "minLength": 1
     },
     "recommended_next_step": {
       "type": "string",
