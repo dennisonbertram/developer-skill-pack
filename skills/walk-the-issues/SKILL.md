@@ -1,6 +1,6 @@
 ---
 name: walk-the-issues
-description: This skill should be used when the user asks to "walk the issues", "work through github issues", "groom and implement issues", "tackle the issue backlog", "start the issue loop", "go through tickets", "work all open issues", "clear the backlog", "process all tickets", or "close out open issues". Orchestrates an end-to-end workflow: groom all open GitHub issues with subagents, then loop through them one-by-one — branching, researching, implementing with swarms, testing, committing, merging, and creating PRs until all issues are complete.
+description: 'This skill should be used when the user asks to "walk the issues", "work through github issues", "groom and implement issues", "tackle the issue backlog", "start the issue loop", "go through tickets", "work all open issues", "clear the backlog", "process all tickets", or "close out open issues". Orchestrates an end-to-end workflow: groom all open GitHub issues with subagents, then loop through them one-by-one - branching, researching, implementing with swarms, testing, committing, merging, and creating PRs until all issues are complete.'
 version: 0.1.0
 user_invocable: true
 ---
