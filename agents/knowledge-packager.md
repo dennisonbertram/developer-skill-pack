@@ -1,0 +1,1 @@
+../skills/coordinator/agents/knowledge-packager.md

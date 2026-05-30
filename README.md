@@ -47,7 +47,49 @@ Works with **Claude Code** and **OpenAI Codex CLI**.
 
 ## Installation
 
-### Claude Code (recommended)
+### Install as a Claude Code plugin (agents + skills)
+
+The plugin installs all 20 coordinator agents as `developer-skill-pack:` namespaced subagents plus all skills. Use this path if you want `--agent developer-skill-pack:issue-groomer` style dispatch and persistent plugin management.
+
+**Step 1 — Add this repo as a marketplace source (one-time per machine):**
+
+```bash
+claude plugin marketplace add dennisonbertram/developer-skill-pack
+```
+
+**Step 2 — Install the plugin:**
+
+```bash
+claude plugin install developer-skill-pack@developer-skill-pack
+```
+
+**Use the namespaced agents:**
+
+```bash
+# Groom the issue backlog
+claude --agent developer-skill-pack:issue-groomer -p "groom all open issues"
+
+# Work the backlog to tested PRs
+claude --agent developer-skill-pack:issue-implementer
+
+# Run the coordinator control plane
+claude --agent developer-skill-pack:coordinator -p "plan the sprint"
+
+# Other agents: worker, reviewer, planner, briefer, researcher, scribe,
+# distiller, knowledge-packager, learning-extractor, system-tester,
+# ui-tester, ux-tester, worker-investigation, worker-refactor, worker-test,
+# evidence-auditor, intent-validator
+```
+
+Note: user-scope agents in `~/.claude/agents/` take precedence over plugin agents. If you have any of these agents installed at user scope (e.g. via `npx skills add`), use the namespaced form `developer-skill-pack:agent-name` to invoke the plugin version explicitly.
+
+**Local session-only load (no install required):**
+
+```bash
+claude --plugin-dir /path/to/developer-skill-pack --agent developer-skill-pack:issue-groomer -p "say READY"
+```
+
+### Install skills only via npx skills (recommended for most users)
 
 ```bash
 npx skills add dennisonbertram/developer-skill-pack
@@ -57,6 +99,16 @@ Or install specific skills:
 
 ```bash
 npx skills add dennisonbertram/developer-skill-pack --skill coordinator debug setup-repo
+```
+
+This installs skills (invoked as `/skill-name`) and copies the coordinator agent .md files to your user-scope `~/.claude/agents/` as unnamespaced agents. Use this path for the simplest setup. To use agents after skills install:
+
+```bash
+# Unnamespaced (from user scope after npx skills install)
+claude --agent issue-groomer
+
+# Namespaced (only available after plugin install)
+claude --agent developer-skill-pack:issue-groomer
 ```
 
 ### OpenAI Codex CLI
@@ -290,7 +342,9 @@ See `docs/process/` for the full workflow documentation.
 ```
 developer-skill-pack/
 ├── .claude-plugin/
-│   └── plugin.json                    # Plugin manifest
+│   ├── plugin.json                    # Plugin manifest
+│   └── marketplace.json               # Marketplace entry (enables /plugin marketplace add)
+├── agents/                            # Symlinks -> skills/coordinator/agents/ (plugin agent exposure)
 ├── skills/
 │   ├── ux-paths/                      # User journey story generator
 │   │   ├── SKILL.md
