@@ -7,25 +7,81 @@
   "additionalProperties": false,
   "required": [
     "goal_id",
-    "issue_number",
-    "issue_url",
     "loop_status",
-    "claim_evidence",
-    "files_changed",
-    "behavioral_tests",
-    "blocked",
-    "pr_url",
     "recommended_next_step"
   ],
-  "if": {
-    "properties": {
-      "blocked": { "const": true }
+  "allOf": [
+    {
+      "if": {
+        "properties": { "loop_status": { "const": "completed" } },
+        "required": ["loop_status"]
+      },
+      "then": {
+        "required": [
+          "goal_id",
+          "issue_number",
+          "issue_url",
+          "loop_status",
+          "claim_evidence",
+          "files_changed",
+          "behavioral_tests",
+          "audit_trail_commits",
+          "tdd_evidence",
+          "dod_checklist_results",
+          "pr_url",
+          "recommended_next_step"
+        ],
+        "properties": {
+          "blocked": { "const": false },
+          "behavioral_tests": { "minItems": 1 },
+          "pr_url": { "type": "string", "format": "uri" }
+        }
+      }
     },
-    "required": ["blocked"]
-  },
-  "then": {
-    "required": ["blocked_reason"]
-  },
+    {
+      "if": {
+        "properties": { "loop_status": { "const": "blocked" } },
+        "required": ["loop_status"]
+      },
+      "then": {
+        "required": [
+          "goal_id",
+          "issue_number",
+          "issue_url",
+          "loop_status",
+          "claim_evidence",
+          "blocked",
+          "blocked_reason",
+          "recommended_next_step"
+        ],
+        "properties": {
+          "blocked": { "const": true },
+          "pr_url": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "loop_status": { "const": "terminal" } },
+        "required": ["loop_status"]
+      },
+      "then": {
+        "required": [
+          "goal_id",
+          "loop_status",
+          "run_stop_reason",
+          "recommended_next_step"
+        ],
+        "properties": {
+          "pr_url": { "type": "null" },
+          "run_stop_reason": {
+            "type": "string",
+            "enum": ["max_issues_reached", "kill_switch", "no_ready_issues", "ci_retry_budget_exhausted"]
+          }
+        }
+      }
+    }
+  ],
   "properties": {
     "goal_id": {
       "type": "string",
@@ -104,7 +160,7 @@
     },
     "behavioral_tests": {
       "type": "array",
-      "description": "Behavioral tests written for the issue's Definition of Done, each mapped to a spec.",
+      "description": "Behavioral tests written for the issue's Definition of Done, each mapped to a spec. Required for loop_status:completed (minItems:1); optional (may be empty) for loop_status:blocked; not required for loop_status:terminal.",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -114,8 +170,7 @@
           "description": { "type": "string", "description": "The behavior under test.", "minLength": 1 },
           "status":      { "type": "string", "enum": ["pass", "fail"] }
         }
-      },
-      "minItems": 1
+      }
     },
     "regression_tests": {
       "type": "array",
@@ -131,7 +186,7 @@
       }
     },
     "pr_url": {
-      "description": "URL of the opened pull request. null when loop_status is 'blocked' or 'terminal'.",
+      "description": "URL of the opened pull request. Must be a non-null URI for loop_status:completed. Must be null for loop_status:blocked or loop_status:terminal.",
       "oneOf": [
         { "type": "string", "format": "uri" },
         { "type": "null" }
@@ -152,15 +207,15 @@
     },
     "blocked": {
       "type": "boolean",
-      "description": "True when the agent could not complete the issue and has labeled it status:blocked."
+      "description": "True when the agent could not complete the issue and has labeled it status:blocked. Must be false for loop_status:completed; must be true for loop_status:blocked."
     },
     "blocked_reason": {
       "type": "string",
-      "description": "Required when blocked=true. Detailed groomer-facing explanation of what is missing or blocking. Should be actionable.",
+      "description": "Required when loop_status=blocked. Detailed groomer-facing explanation of what is missing or blocking. Should be actionable.",
       "minLength": 1
     },
     "run_stop_reason": {
-      "description": "Reason the agent loop stopped after this goal, if applicable. null when the loop will continue to the next issue.",
+      "description": "Required when loop_status=terminal. Reason the agent loop stopped. Null when the loop will continue to the next issue.",
       "oneOf": [
         {
           "type": "string",
