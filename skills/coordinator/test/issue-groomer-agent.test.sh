@@ -871,6 +871,98 @@ else
        "expected 'attempt_budget ... default ... 3 ... retry cycle' in $AGENT_FILE"
 fi
 
+# ===========================================================================
+# NEW BEHAVIORAL TESTS — GF16 / GF17 (REVIEW-G2 findings)
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# BT-054 (GF16): blocked write path — body edit BEFORE comment (comment precedes label swap)
+# The write phase must perform gh issue edit --body-file BEFORE gh issue comment.
+# Rationale: body must be on the issue before the comment is posted, so the
+# scribe+worker sequence is: (1) body edit, (2) comment, (3) label swap.
+# ---------------------------------------------------------------------------
+if grep -qiE "body.file.*before.*comment|body.*edit.*then.*comment|edit.*body.*then.*comment|body.*first.*then.*comment|--body-file.*comment.*before.*label|body.*file.*before.*label" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-054 (GF16): blocked write path documents body edit before comment post"
+else
+  fail "BT-054 (GF16): blocked write path documents body edit before comment post" \
+       "expected body-edit-before-comment ordering documented in write phase of $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-055 (GF16): blocked write path — label swap (status:grooming -> status:blocked) is THE FINAL mutation
+# The status-label swap must happen AFTER the comment is posted.
+# The doc must explicitly state swap is last / final mutation.
+# ---------------------------------------------------------------------------
+if grep -qiE "label.*swap.*final|swap.*final.*mutation|final.*mutation.*swap|label.*swap.*last|swap.*last.*mutation|status.*swap.*after.*comment|comment.*before.*swap|swap.*label.*after.*comment|only.*after.*comment.*swap|after.*comment.*label" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-055 (GF16): status-label swap is the FINAL mutation in the blocked write path"
+else
+  fail "BT-055 (GF16): status-label swap is the FINAL mutation in the blocked write path" \
+       "expected 'label swap is the final mutation' or 'swap after comment' ordering in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-056 (GF16): FAILURE/ROLLBACK defensively removes status:blocked AND status:ready
+# The rollback must strip BOTH partial-apply labels, not only status:grooming.
+# This ensures groom_status:failed always lands the issue genuinely status-less.
+# ---------------------------------------------------------------------------
+if grep -qiE "remove.*status:blocked.*rollback|rollback.*remove.*status:blocked|remove.*status:ready.*rollback|rollback.*remove.*status:ready|remove.*blocked.*remove.*ready.*rollback|rollback.*remove.*blocked.*ready|remove.label.*status:blocked.*remove.label.*status:ready" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-056 (GF16): FAILURE/ROLLBACK removes status:blocked AND status:ready defensively"
+else
+  fail "BT-056 (GF16): FAILURE/ROLLBACK removes status:blocked AND status:ready defensively" \
+       "expected rollback to remove status:blocked AND status:ready (defensive strip of partial-apply labels) in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-057 (GF16): groom_status:failed ALWAYS leaves issue genuinely status-less / retryable
+# The doc must explicitly state that after a failed emit the issue has no status:* labels.
+# ---------------------------------------------------------------------------
+if grep -qiE "failed.*status.less|status.less.*failed|failed.*genuinely.*status.less|failed.*retryable.*status.less|failed.*no.*status.*label|no.*status.*label.*failed|failed.*stripped.*status|always.*status.less.*failed|failed.*always.*status.less" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-057 (GF16): groom_status:failed always leaves issue genuinely status-less (retryable)"
+else
+  fail "BT-057 (GF16): groom_status:failed always leaves issue genuinely status-less (retryable)" \
+       "expected explicit 'failed => status-less' guarantee (no residual status:blocked/ready) in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# BT-058 (GF17): gh label create setup examples include --repo flag
+# The Label Contract section must scope label creation with --repo to match the
+# target_repo convention used throughout the rest of the agent.
+# ---------------------------------------------------------------------------
+if grep -qiE "gh label create.*--repo|label create.*--repo.*target_repo|label create.*--repo.*\\\$" "$AGENT_FILE" 2>/dev/null; then
+  pass "BT-058 (GF17): gh label create setup examples include --repo flag"
+else
+  fail "BT-058 (GF17): gh label create setup examples include --repo flag" \
+       "expected '--repo' flag in 'gh label create' examples in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# RT-021 (GF16): write-phase ordering: comment BEFORE label swap cannot be reversed
+# Verifies that the blocked write path explicitly sequences: body -> comment -> swap.
+# If reverted, the comment-post failure after label swap recreates the mislabeled-blocked bug.
+# ---------------------------------------------------------------------------
+has_comment_before_swap=$(grep -ciE "comment.*before.*swap|comment.*then.*swap|comment.*before.*label|post.*comment.*before.*label|comment.*prior.*to.*label|label.*swap.*after.*comment" "$AGENT_FILE" 2>/dev/null || true)
+has_swap_final=$(grep -ciE "label.*swap.*final|swap.*final.*mutation|final.*mutation.*swap|label.*swap.*last|swap.*last.*mutation|swap.*after.*comment" "$AGENT_FILE" 2>/dev/null || true)
+if [ "${has_comment_before_swap:-0}" -gt 0 ] || [ "${has_swap_final:-0}" -gt 0 ]; then
+  pass "RT-021 (GF16): write-phase ordering preserved: comment precedes label swap (swap is final)"
+else
+  fail "RT-021 (GF16): write-phase ordering preserved: comment precedes label swap (swap is final)" \
+       "comment_before_swap=$has_comment_before_swap, swap_final=$has_swap_final — need at least one > 0 in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# RT-022 (GF16): defensive rollback strips status:grooming + status:blocked + status:ready
+# All three label removals must be together in the rollback — none can be silently dropped.
+# ---------------------------------------------------------------------------
+has_rm_grooming=$(grep -ciE "remove.*status:grooming|status:grooming.*remove|remove.label.*status:grooming" "$AGENT_FILE" 2>/dev/null || true)
+has_rm_blocked=$(grep -ciE "remove.*status:blocked|status:blocked.*remove|remove.label.*status:blocked" "$AGENT_FILE" 2>/dev/null || true)
+has_rm_ready=$(grep -ciE "remove.*status:ready|status:ready.*remove|remove.label.*status:ready" "$AGENT_FILE" 2>/dev/null || true)
+if [ "${has_rm_grooming:-0}" -gt 0 ] && [ "${has_rm_blocked:-0}" -gt 0 ] && [ "${has_rm_ready:-0}" -gt 0 ]; then
+  pass "RT-022 (GF16): defensive rollback documents removing status:grooming, status:blocked, AND status:ready"
+else
+  fail "RT-022 (GF16): defensive rollback documents removing status:grooming, status:blocked, AND status:ready" \
+       "rm_grooming=$has_rm_grooming rm_blocked=$has_rm_blocked rm_ready=$has_rm_ready — all three required in $AGENT_FILE"
+fi
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
