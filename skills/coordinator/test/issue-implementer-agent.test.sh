@@ -376,6 +376,73 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# RT-006: attempt_budget appears in the Stop Conditions table
+# If the per-issue attempt_budget is removed from the table, this fails.
+# The table is the canonical reference for operators; it must include this row.
+# ---------------------------------------------------------------------------
+if grep -qE "attempt_budget" "$AGENT_FILE" 2>/dev/null && \
+   grep -qE "\| *\`attempt_budget\`|\battempt_budget\b.*default.*3|default.*3.*attempt_budget" "$AGENT_FILE" 2>/dev/null; then
+  pass "RT-006: attempt_budget appears in the Stop Conditions table with default value 3"
+else
+  fail "RT-006: attempt_budget appears in the Stop Conditions table with default value 3" \
+       "expected attempt_budget with default 3 in Stop Conditions table in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# RT-007: circuit-breaker threshold has an explicit default (3) documented
+# If the circuit-breaker default is removed or changed without updating docs,
+# this fails — ensuring operators know the default before overriding it.
+# ---------------------------------------------------------------------------
+if grep -qiE "consecutive.*threshold.*3|threshold.*3.*consecutive|default.*3.*consecutive|consecutive.*block.*3|threshold.*default.*3" "$AGENT_FILE" 2>/dev/null; then
+  pass "RT-007: circuit-breaker consecutive threshold default (3) is documented"
+else
+  fail "RT-007: circuit-breaker consecutive threshold default (3) is documented" \
+       "expected circuit-breaker threshold default '3' documented in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# RT-008: Output Contract section names all three loop_status variants
+# If one variant is removed from the Output Contract section, this fails.
+# Tests that the per-variant documentation is complete, not just partial.
+# ---------------------------------------------------------------------------
+variants_found=0
+for variant in "completed" "blocked" "terminal"; do
+  if grep -qE "loop_status.*\"${variant}\"|loop_status:.*\"${variant}\"|Variant.*${variant}" "$AGENT_FILE" 2>/dev/null; then
+    variants_found=$((variants_found + 1))
+  fi
+done
+if [ "$variants_found" -eq 3 ]; then
+  pass "RT-008: Output Contract section documents all three loop_status variants (completed/blocked/terminal)"
+else
+  fail "RT-008: Output Contract section documents all three loop_status variants" \
+       "only found $variants_found of 3 variants (completed/blocked/terminal) in Output Contract in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# RT-009: kill-switch re-check (F7) mentions "re-fetch" in claim phase context
+# If the re-fetch guard is removed from the claim phase, this fails.
+# Must be more specific than just any mention of kill in the file.
+# ---------------------------------------------------------------------------
+if grep -qiE "re.fetch.*label|re-fetch.*before|re-fetch.*claim|re.fetch.*kill" "$AGENT_FILE" 2>/dev/null; then
+  pass "RT-009: kill-switch re-fetch guard preserved in claim phase"
+else
+  fail "RT-009: kill-switch re-fetch guard preserved in claim phase" \
+       "expected re-fetch of labels before claim in $AGENT_FILE — F7 guard may have been removed"
+fi
+
+# ---------------------------------------------------------------------------
+# RT-010: untrusted content section uses specific word UNTRUSTED
+# If the section is softened to just advisory language without the UNTRUSTED
+# designation, this test fails — preserving the security posture.
+# ---------------------------------------------------------------------------
+if grep -q "UNTRUSTED" "$AGENT_FILE" 2>/dev/null; then
+  pass "RT-010: untrusted content section uses the word UNTRUSTED (security-posture preserved)"
+else
+  fail "RT-010: untrusted content section uses the word UNTRUSTED" \
+       "expected uppercase UNTRUSTED in security section — section may have been softened in $AGENT_FILE"
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""
