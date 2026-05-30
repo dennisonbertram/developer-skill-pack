@@ -138,6 +138,79 @@ else
        "expected 'issue-implementer' entry in $SKILL_FILE"
 fi
 
+# ===========================================================================
+# REGRESSION TESTS — added in regression commit.
+# These tests would FAIL if the full implementation in the green commit were
+# reverted to the stub, or if individual required attributes were removed.
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# RT-001: tools field must specifically be 'Agent' (not a broader toolset)
+# If tools: were changed to 'Read, Edit, Write, Bash' (like a worker),
+# this test would fail — ensuring the pure-delegation contract is preserved.
+# ---------------------------------------------------------------------------
+tools_line=$(grep '^tools:' "$AGENT_FILE" 2>/dev/null | head -1)
+if [ "$tools_line" = "tools: Agent" ]; then
+  pass "RT-001: tools field is exactly 'tools: Agent' (pure-delegation, not a worker toolset)"
+else
+  fail "RT-001: tools field is exactly 'tools: Agent'" \
+       "expected 'tools: Agent', got: '$tools_line' — pure-delegation contract broken"
+fi
+
+# ---------------------------------------------------------------------------
+# RT-002: model field must specifically be 'opus' (not sonnet or haiku)
+# If model: were changed to sonnet (as for workers), this catches the drift.
+# ---------------------------------------------------------------------------
+model_line=$(grep '^model:' "$AGENT_FILE" 2>/dev/null | head -1)
+if [ "$model_line" = "model: opus" ]; then
+  pass "RT-002: model field is exactly 'model: opus'"
+else
+  fail "RT-002: model field is exactly 'model: opus'" \
+       "expected 'model: opus', got: '$model_line'"
+fi
+
+# ---------------------------------------------------------------------------
+# RT-003: settings file exists and denies Edit/Write/Bash
+# A pure-delegation agent must have a settings file that denies direct I/O
+# tools. If the settings file is deleted or Edit is un-denied, this fails.
+# ---------------------------------------------------------------------------
+SETTINGS_FILE="$COORD_DIR/issue-implementer-settings.json"
+if [ -f "$SETTINGS_FILE" ]; then
+  if grep -q '"Edit"' "$SETTINGS_FILE" && grep -q '"Write"' "$SETTINGS_FILE" && grep -q '"Bash"' "$SETTINGS_FILE"; then
+    pass "RT-003: issue-implementer-settings.json exists and denies Edit, Write, Bash"
+  else
+    fail "RT-003: issue-implementer-settings.json denies Edit, Write, Bash" \
+         "settings file exists but is missing one of: Edit, Write, Bash in deny list"
+  fi
+else
+  fail "RT-003: issue-implementer-settings.json exists" \
+       "file not found: $SETTINGS_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# RT-004: SKILL.md registration includes model and tools columns for issue-implementer
+# Catches a registration row that exists but is missing critical metadata.
+# ---------------------------------------------------------------------------
+if grep -q 'issue-implementer' "$SKILL_FILE" 2>/dev/null && \
+   grep 'issue-implementer' "$SKILL_FILE" | grep -q 'Opus\|opus'; then
+  pass "RT-004: SKILL.md issue-implementer row includes model reference"
+else
+  fail "RT-004: SKILL.md issue-implementer row includes model reference" \
+       "row exists but is missing opus model reference in $SKILL_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# RT-005: non-atomic claim caveat is specific enough to mention v2 or concurrent
+# A vague mention of "sequential" is not enough — the caveat must specifically
+# address concurrency so future readers understand WHY it's sequential.
+# ---------------------------------------------------------------------------
+if grep -qi "concurrent\|concurren\|v2\|two.*run\|double.pick\|double-pick" "$AGENT_FILE" 2>/dev/null; then
+  pass "RT-005: non-atomic claim caveat specifically addresses concurrent runs / v2"
+else
+  fail "RT-005: non-atomic claim caveat specifically addresses concurrent runs" \
+       "expected 'concurrent', 'v2', 'two runs', or 'double-pick' in $AGENT_FILE"
+fi
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
