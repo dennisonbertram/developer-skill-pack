@@ -17,6 +17,16 @@ Sweep this session's sub-agent JSONL transcripts for NOVEL learnings not already
 
 No arguments needed — the skill discovers transcripts automatically.
 
+### Workflow Mode
+
+For deterministic parallel execution, use the workflow script:
+
+```
+use a workflow for mine-transcripts
+```
+
+The workflow script (`workflows/mine-transcripts.js`) implements the same 3-phase process with typed JSON Schema outputs, parallel slicing via `pipeline()`, and structured consolidation.
+
 ---
 
 ## Step 1 — Discover

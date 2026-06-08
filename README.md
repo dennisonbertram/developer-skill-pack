@@ -376,6 +376,41 @@ For the full runbook — preconditions, label setup with exact `gh label create`
 
 ---
 
+## Workflow Scripts
+
+The `workflows/` directory contains deterministic multi-agent orchestration scripts that leverage Claude Code's Workflow runtime. These provide typed outputs, parallel execution, and adversarial verification — capabilities beyond what prompt-based skills can achieve.
+
+| Workflow | Agents | Pattern | Description |
+|----------|--------|---------|-------------|
+| **mine-transcripts.js** | 5-8 | Discover → parallel pipeline → consolidate | Sweeps sub-agent JSONLs with typed schemas, dedupes across slices, persists to learning docs |
+| **code-review.js** | 11-16 | 5 parallel reviewers → adversarial verify per finding | Reviews across correctness, security, performance, concurrency, and API contracts. Skeptics refute false positives before reporting. |
+| **ux-walker.js** | 3-20+ | Preflight → parallel walks → triage → report | Deploy verification, parallel story walking, structured findings with severity classification |
+
+### Using Workflows
+
+Workflows run when you ask Claude Code to "use a workflow" or include "ultracode" in your prompt:
+
+```
+use a workflow for mine-transcripts
+```
+
+Or copy to your project's `.claude/workflows/` for direct `/command` invocation:
+
+```bash
+cp workflows/mine-transcripts.js .claude/workflows/
+# Now available as /mine-transcripts in Claude Code
+```
+
+### Key Advantages Over Prompt-Based Skills
+
+- **Typed outputs**: JSON Schema contracts on every agent call — no parsing, automatic retry on mismatch
+- **Parallel execution**: `pipeline()` streams items through stages without barriers; `parallel()` for fan-out
+- **Adversarial verification**: Independent skeptics refute findings before they're reported
+- **Deterministic control flow**: Loops, conditionals, and error handling in JavaScript, not natural language
+- **Resumable**: Completed agents return cached results if the script is re-run
+
+---
+
 ## Codex CLI Coordinator
 
 The coordinator pattern works with Codex CLI via its MCP server mode. Codex supports:
@@ -468,6 +503,10 @@ developer-skill-pack/
 │   │   └── SKILL.md
 │   └── research-spike/               # Structured research
 │       └── SKILL.md
+├── workflows/                         # Deterministic multi-agent workflow scripts
+│   ├── mine-transcripts.js            # Parallel transcript mining with dedupe
+│   ├── code-review.js                 # 5-dimension review + adversarial verify
+│   └── ux-walker.js                   # Parallel story walking with deploy check
 ├── hooks/                             # TDD enforcement hooks
 │   ├── tdd-reminder.sh
 │   └── session-start.sh
