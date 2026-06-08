@@ -96,6 +96,27 @@ lsof -i :{port} 2>/dev/null
 # Use a different port if the default is occupied
 ```
 
+### 0.1.5 Deploy Check
+
+Check if the app has version fingerprinting installed:
+
+```bash
+# Try the endpoint first (faster than browser)
+curl -s "{URL}/__version" 2>/dev/null || curl -s "{URL}/version.json" 2>/dev/null
+```
+
+If the endpoint returns version JSON, compare `git_sha` against `git rev-parse --short HEAD`:
+
+- **Match**: Log `Deploy check: SHA {sha} verified ✓` and continue.
+- **Mismatch**: Warn `Deploy check: deployed SHA {deployed} ≠ HEAD {head} — testing may reflect an older build` but **continue** (the user may be testing an older deploy intentionally).
+- **No endpoint / no meta tag**: Note `No version fingerprint found — run /deploy-check --install to add one` and continue. This is advisory, not blocking.
+
+If the endpoint is missing, fall back to the meta tag via agent-browser:
+
+```bash
+agent-browser js "document.querySelector('meta[name=\"build-version\"]')?.content"
+```
+
 ### 0.2 Catalog Check
 
 Verify `docs/ux-paths/catalog.md` exists. If it does not:

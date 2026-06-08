@@ -17,6 +17,7 @@ Works with **Claude Code** and **OpenAI Codex CLI**.
 | **ux-paths** | Generate exhaustive user journey stories by analyzing the codebase. Produces short, medium, and long stories with a swarm of parallel sub-agents. |
 | **ux-walker** | Walk the UX story catalog through a real browser, testing each journey for correctness, visual quality, and UX excellence. Auto-fixes small issues, files GitHub issues for larger ones. |
 | **walk-the-issues** | Groom all open GitHub issues, then loop through them — branching, researching, implementing with swarms, testing, and creating PRs until all issues are complete. |
+| **deploy-check** | Instrument a frontend with version fingerprinting (meta tag + `/__version` endpoint) so LLM-based testing can verify the correct build is deployed before walking. |
 
 ### Coordination (from [claude-coordinator](https://github.com/dennisonbertram/claude-coordinator))
 
@@ -260,21 +261,29 @@ Claims `status:ready` issues one at a time → TDD implementation → tested PR 
 
 Analyzes the codebase and produces a catalog of user journey stories.
 
-### 6. Walk the stories through a browser
+### 6. Add deploy verification to a frontend
+
+```
+/deploy-check --install
+```
+
+Instruments the app with a `<meta name="build-version">` tag and a `/__version` JSON endpoint so ux-walker can confirm the correct build is deployed before testing.
+
+### 7. Walk the stories through a browser
 
 ```
 /ux-walker http://localhost:3000
 ```
 
-Tests each story for correctness, visual quality, and UX excellence.
+Tests each story for correctness, visual quality, and UX excellence. Automatically checks the deploy version first if fingerprinting is installed.
 
-### 7. Research before adopting
+### 8. Research before adopting
 
 ```
 /research-spike "Should we use Prisma or Drizzle for the ORM?"
 ```
 
-### 8. Debug a bug
+### 9. Debug a bug
 
 ```
 /debug
@@ -282,7 +291,7 @@ Tests each story for correctness, visual quality, and UX excellence.
 
 7-phase deterministic workflow: symptom → archaeology → reproduce → logs → hypothesis → fix → regression test.
 
-### 9. Mine session transcripts for learnings
+### 10. Mine session transcripts for learnings
 
 ```
 /mine-transcripts
@@ -290,7 +299,7 @@ Tests each story for correctness, visual quality, and UX excellence.
 
 Discovers sub-agent JSONLs, mines them in parallel for dead ends, silently-recovered errors, and design sub-decisions, then promotes high-confidence findings to durable docs.
 
-### 10. Guard against regressions
+### 11. Guard against regressions
 
 ```
 /regression-guard
@@ -446,6 +455,8 @@ developer-skill-pack/
 │   │   ├── agents/                    # 14 agent definitions
 │   │   ├── schemas/                   # JSON Schema output contracts
 │   │   └── templates/
+│   ├── deploy-check/                   # Version fingerprinting for deploy verification
+│   │   └── SKILL.md
 │   ├── mine-transcripts/               # Session transcript mining
 │   │   └── SKILL.md
 │   ├── setup-repo/                    # Repo scaffolding
