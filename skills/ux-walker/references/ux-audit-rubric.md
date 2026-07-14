@@ -93,6 +93,58 @@ Each criterion is scored: `pass` | `warn` | `fail`
 | Form validation | Inline, immediate, helpful | On submit only, but clear | Unclear what went wrong or how to fix |
 | Network failure | Retry option, data preserved | Error shown, manual refresh needed | Silent failure, data lost |
 
+## 8. Visual Consistency & Rhythm
+
+**Question**: Do repeated elements look like siblings, and does spacing follow a rhythm?
+
+Verify with the screenshot AND `geometry-audit.js` (see `visual-inspection.md`) — measured pixel numbers, not impressions.
+
+| Check | Pass | Warn | Fail |
+|-------|------|------|------|
+| Sibling uniformity | Cards/tiles/rows in a group share height, width, padding, radius | ≤8px drift, or one deliberate feature member | Visibly different shapes in the same row/grid |
+| Edge alignment | Left edges and tops align across sections | 2-8px drift | Visibly misaligned columns, rows, or label/input pairs |
+| Spacing scale | Gaps come from one consistent scale (4/8px-based) | Occasional off-scale gap | Random gaps; same-level siblings spaced differently |
+| Indentation | Nested content indents uniformly, one width per level | Slight inconsistency | Mixed indent widths; nesting unreadable from indent |
+| Component consistency | The same control looks identical everywhere it appears | Minor variants (size only) | Same control styled differently across screens |
+
+## 9. Text Fit & Wrap
+
+**Question**: Does real content fit the layout without breaking it?
+
+| Check | Pass | Warn | Fail |
+|-------|------|------|------|
+| Control labels | Buttons/tabs/chips/nav items stay on one line | Wraps only at extreme viewport | Wrapped control label at default viewport |
+| Overflow/clipping | Text fits, or truncates with ellipsis + full value available (title/tooltip) | Tight fit, no breathing room | Clipped mid-letter, spills over container, overlaps neighbors |
+| Long content | Layout absorbs the longest realistic value (name, email, title) | Minor push | Long value blows apart a row, card, or table |
+| Wrap quality | Breaks at word boundaries; headings avoid orphan single words | — | Mid-word breaks without hyphenation |
+
+## 10. Visual Hierarchy & Redundancy
+
+**Question**: Does visual weight match importance — and is each thing said once?
+
+| Check | Pass | Warn | Fail |
+|-------|------|------|------|
+| Primary action | Exactly one visually dominant action per screen | Primary findable but not dominant | Multiple competing primaries, or none |
+| Importance encoding | Size/weight/color/position track importance | Mostly consistent | Key info visually quieter than trivia |
+| Heading structure | Logical levels, one page title | Skipped level | Flat or scrambled heading hierarchy |
+| Information stated once | Each fact appears once per screen | Duplicated in header + body | Same info shown 3+ times; same control duplicated on one screen |
+| Emphasis budget | Bold/color/badges used sparingly | Some over-emphasis | Everything emphasized — nothing stands out |
+
+## 11. Flow Economy
+
+**Question**: Is this the shortest sensible path to the user's goal?
+
+Score per story (using the Flow Log), not per page. Compare against the story's **Ideal path** from the catalog when present.
+
+| Check | Pass | Warn | Fail |
+|-------|------|------|------|
+| Step count | Actual ≈ minimal conceivable | 1-2 extra steps | 3+ extra steps or forced detours |
+| Decision load | Defaults carry the user; choices only where they matter | Some unnecessary choices | User must decide things the app could infer |
+| Data re-entry | Never re-enter data the app knows | Prefilled but must re-confirm | Re-typing known data |
+| Confirmations | Only for destructive/irreversible actions | One superfluous confirm | Confirmation chains on safe actions |
+| Dead ends | Every screen offers the obvious next step | Exit via back button only | User stranded; must restart from home |
+| One way per task | One clear route (plus deliberate shortcuts) | Two unmarked equivalent routes | Multiple divergent routes with different results |
+
 ## Finding Template
 
 When a check results in `warn` or `fail`, create a finding:
@@ -101,7 +153,7 @@ When a check results in `warn` or `fail`, create a finding:
 {
   "id": "F-{STORY_ID}-{SEQ}",
   "severity": "critical|high|medium|low|suggestion",
-  "category": "simplicity|disclosure|layout|visual|happy-path|a11y|error-handling",
+  "category": "simplicity|disclosure|layout|visual|consistency|hierarchy|flow|happy-path|a11y|error-handling",
   "criterion": "Which specific check failed",
   "score": "warn|fail",
   "description": "What is wrong",

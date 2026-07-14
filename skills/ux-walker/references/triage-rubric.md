@@ -39,6 +39,10 @@ A finding qualifies as a **quick fix** if ALL of these are true:
 | Z-index issue on dropdown | 1 CSS file, adjust z-index |
 | Missing aria-label on icon button | 1 file, add attribute |
 | Inconsistent border-radius | 1-2 files, update values |
+| Sibling cards uneven heights | 1 CSS file, `align-items: stretch` / `h-full` on the card |
+| Button label wraps to two lines | 1 file, `white-space: nowrap`, wider min-width, or shorter label |
+| Uneven gaps between siblings | 1 CSS file, replace ad-hoc margins with `gap` |
+| Misaligned left edges / indent | 1 CSS file, unify padding/margin values |
 
 ## Filed Issue Criteria
 

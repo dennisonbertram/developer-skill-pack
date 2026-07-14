@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "developer-skill-pack",
-      "description": "Complete development toolkit — UX testing, multi-agent coordination, TDD workflow, GitHub templates, research spikes, and repo scaffolding. Provides 20 coordinator agents (issue-groomer, issue-implementer, coordinator, worker, reviewer, planner, and more) plus 9 skills for browser UX testing, research spikes, TDD enforcement, and repo scaffolding.",
+      "description": "Complete development toolkit — UX testing, multi-agent coordination, TDD workflow, GitHub templates, research spikes, and repo scaffolding. Provides 20 coordinator agents (issue-groomer, issue-implementer, coordinator, worker, reviewer, planner, and more) plus 11 skills for browser UX testing, UX flow critique, research spikes, TDD enforcement, and repo scaffolding.",
       "author": {
         "name": "Dennison Bertram"
       },
