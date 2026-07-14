@@ -14,8 +14,9 @@ Works with **Claude Code** and **OpenAI Codex CLI**.
 
 | Skill | Description |
 |-------|-------------|
-| **ux-paths** | Generate exhaustive user journey stories by analyzing the codebase. Produces short, medium, and long stories with a swarm of parallel sub-agents. |
-| **ux-walker** | Walk the UX story catalog through a real browser, testing each journey for correctness, visual quality, and UX excellence. Auto-fixes small issues, files GitHub issues for larger ones. |
+| **ux-paths** | Generate exhaustive user journey stories by analyzing the codebase. Produces short, medium, and long stories with a swarm of parallel sub-agents. Records each story's ideal path length and alternate routes, plus a redundancy-candidates map. |
+| **ux-walker** | Walk the UX story catalog through a real browser, testing each journey for correctness, visual quality, and UX excellence. Inspects every screenshot visually, measures alignment/spacing/wrap defects with a geometry-audit script, and logs flow friction per story. Auto-fixes small issues, files GitHub issues for larger ones. |
+| **ux-flow** | Critique the app for simplicity, clarity, and redundancy. Per-journey friction scorecards ("how could this be simpler?"), cross-journey redundancy hunting (duplicate paths/info/features), and visual-hierarchy/IA audit. Files ranked simplification proposals as `needs-design` issues. |
 | **walk-the-issues** | Groom all open GitHub issues, then loop through them — branching, researching, implementing with swarms, testing, and creating PRs until all issues are complete. |
 | **deploy-check** | Instrument a frontend with version fingerprinting (meta tag + `/__version` endpoint) so LLM-based testing can verify the correct build is deployed before walking. |
 
@@ -275,15 +276,23 @@ Instruments the app with a `<meta name="build-version">` tag and a `/__version` 
 /ux-walker http://localhost:3000
 ```
 
-Tests each story for correctness, visual quality, and UX excellence. Automatically checks the deploy version first if fingerprinting is installed.
+Tests each story for correctness, visual quality, and UX excellence. Every screenshot is visually inspected, alignment/spacing/wrap defects are measured with a geometry-audit script, and flow friction is logged per story. Automatically checks the deploy version first if fingerprinting is installed.
 
-### 8. Research before adopting
+### 8. Critique flows for simplicity and redundancy
+
+```
+/ux-flow
+```
+
+Asks "how could this be simpler, how could this be clearer?" for each core journey — friction scorecards against the catalog's ideal paths, cross-journey redundancy hunting (duplicate paths, duplicate information, overlapping features), and a visual-hierarchy audit. Produces ranked simplification proposals and files them as `needs-design` issues. Reuses ux-walker screenshots when fresh.
+
+### 9. Research before adopting
 
 ```
 /research-spike "Should we use Prisma or Drizzle for the ORM?"
 ```
 
-### 9. Debug a bug
+### 10. Debug a bug
 
 ```
 /debug
@@ -291,7 +300,7 @@ Tests each story for correctness, visual quality, and UX excellence. Automatical
 
 7-phase deterministic workflow: symptom → archaeology → reproduce → logs → hypothesis → fix → regression test.
 
-### 10. Mine session transcripts for learnings
+### 11. Mine session transcripts for learnings
 
 ```
 /mine-transcripts
@@ -299,7 +308,7 @@ Tests each story for correctness, visual quality, and UX excellence. Automatical
 
 Discovers sub-agent JSONLs, mines them in parallel for dead ends, silently-recovered errors, and design sub-decisions, then promotes high-confidence findings to durable docs.
 
-### 11. Guard against regressions
+### 12. Guard against regressions
 
 ```
 /regression-guard
@@ -480,8 +489,11 @@ developer-skill-pack/
 │   │   └── references/
 │   ├── ux-walker/                     # Browser-based UX testing
 │   │   ├── SKILL.md
-│   │   ├── references/
+│   │   ├── references/                # Rubrics + visual-inspection protocol + geometry-audit.js
 │   │   └── templates/
+│   ├── ux-flow/                       # Simplicity & redundancy critique
+│   │   ├── SKILL.md
+│   │   └── references/                # Simplification heuristics
 │   ├── walk-the-issues/               # Issue grooming + implementation loop
 │   │   ├── SKILL.md
 │   │   └── references/

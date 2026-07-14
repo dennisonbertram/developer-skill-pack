@@ -1,7 +1,7 @@
 ---
 name: ux-walker
-description: Walk UX story catalog through a real browser, testing each journey for correctness, visual quality, and UX excellence. Auto-fixes small issues, files GitHub issues for larger ones.
-version: 1.0.0
+description: Walk UX story catalog through a real browser, testing each journey for correctness, visual quality, and UX excellence. Inspects every screenshot visually, measures alignment/spacing/wrap defects with a geometry audit, and logs flow friction per story. Auto-fixes small issues, files GitHub issues for larger ones.
+version: 1.1.0
 user_invocable: true
 ---
 
@@ -241,7 +241,7 @@ Spawn **1 general-purpose sub-agent** per story.
 
 **allowed-tools**: `Bash(agent-browser:*)`, `Write`, `Read`, `Glob`, `Grep`
 
-**Prompt template** (fill in variables from the walk plan and catalog):
+**Prompt template** (fill in variables from the walk plan and catalog; `{SKILL_DIR}` is this skill's base directory):
 
 ```
 You are a UX walker testing STORY-{ID}: "{TITLE}"
@@ -252,6 +252,12 @@ You are a UX walker testing STORY-{ID}: "{TITLE}"
 ## Session
 Use agent-browser session: {SESSION_NAME}
 
+## Skill resources
+Skill directory: {SKILL_DIR}
+Before starting, read {SKILL_DIR}/references/ux-audit-rubric.md and
+{SKILL_DIR}/references/visual-inspection.md. The geometry audit script is at
+{SKILL_DIR}/references/geometry-audit.js.
+
 ## Instructions
 
 1. For each step in the story:
@@ -259,53 +265,105 @@ Use agent-browser session: {SESSION_NAME}
    b. Read the snapshot to find the target element (by text, role, or selector)
    c. Execute the action: click, type, navigate, etc.
    d. Take a screenshot: `agent-browser --session {SESSION} screenshot {OUTPUT_DIR}/stories/STORY-{ID}/screenshots/step-{N}.png`
-   e. Verify the expected result from the story step
-   f. Run the UX audit checklist (see below) on the current page state
+   e. **Open that screenshot with the Read tool and look at it.** The accessibility
+      snapshot cannot show misalignment, uneven cards, broken text wrapping, or
+      spacing problems — only the screenshot can. A step where you did not view
+      the screenshot is a step you did not audit.
+   f. Verify the expected result from the story step
+   g. Run the UX audit checklist (see below) on the current page state
 
-2. UX Audit at each page state (reference: references/ux-audit-rubric.md):
+2. Visual inspection — what to look FOR in each screenshot (full protocol:
+   references/visual-inspection.md):
+   - Do sibling cards/tiles/list items have the same shape — height, width, radius, padding?
+   - Do edges line up — left edges of stacked sections, tops of side-by-side items,
+     label/input pairs, indentation of nested content?
+   - Is spacing even — equal gaps between siblings, consistent section padding?
+   - Does any text wrap badly — wrapped button/tab labels, mid-word breaks, long
+     values pushing the layout apart?
+   - Does anything overflow, clip, or spill out of its container?
+   - Is there ONE clearly primary action, with size/weight/color matching importance?
+   - Is the same piece of information shown more than once on this screen?
+
+3. Geometry audit — at each DISTINCT page state (a new page or a major layout change,
+   not every micro-step):
+   ```bash
+   agent-browser --session {SESSION} eval "$(cat {SKILL_DIR}/references/geometry-audit.js)"
+   ```
+   The script returns JSON: uneven sibling rows (heights/widths/gaps/top drift),
+   overflow spills, wrapped controls, page horizontal overflow. Confirm each reported
+   violation in the screenshot, then log it as a finding (category `consistency` or
+   `layout`). Trust the script for measurements and your eyes for whether it matters.
+
+4. Responsive spot-check — once per story, at the story's primary screen (skip for
+   non-responsive desktop apps):
+   ```bash
+   agent-browser --session {SESSION} set viewport 390 844
+   agent-browser --session {SESSION} screenshot {OUTPUT_DIR}/stories/STORY-{ID}/screenshots/mobile-check.png
+   # Read the screenshot: look for wrap/overflow/stacking breakage
+   agent-browser --session {SESSION} set viewport 1280 800
+   ```
+
+5. UX Audit at each page state (reference: references/ux-audit-rubric.md):
    - Simplicity: Is the user overwhelmed? Too many choices visible?
    - Progressive disclosure: Information appears when needed, not before
    - Layout quality: Fills viewport, no excess whitespace, scroll only when needed
-   - Visual correctness: No overflow, broken divs, theme consistency, alignment
+   - Visual correctness: No overflow, broken divs, theme consistency
+   - Visual consistency: alignment, even spacing, uniform sibling shapes (steps 2-3)
+   - Visual hierarchy: one primary action; size/weight/position encode importance;
+     no information stated twice on one screen
    - Happy path clarity: Can a naive user accomplish their goal?
    - "Take away" test: What could be removed without losing function?
-   - Responsiveness: Does the layout work at the current viewport?
-   - Typography: Readable font sizes, proper hierarchy, no orphan lines
+   - Typography: Readable font sizes, proper hierarchy, no broken wrapping
    - Interaction feedback: Do clicks, hovers, transitions feel responsive?
    - Error states: Are errors shown clearly and helpfully?
 
-3. For each finding:
+6. Flow log — track while walking; write as a final section of walk-report.md:
+   - Steps the story specified vs. steps you actually needed (detours, retries,
+     hunting via scroll/snapshot count). If the catalog records an **Ideal path**
+     for this story and you needed more steps, log a `flow` finding naming the
+     friction points.
+   - Every moment you (as the persona) hesitated — control not found on first
+     snapshot, ambiguous label, unexpected navigation — log it; hesitation is a
+     discoverability finding.
+   - Any data the user must re-enter that the app already knows → `flow` finding.
+   - Any information or control you saw duplicated across screens → note it in the
+     flow log (cross-screen redundancy synthesis happens in /ux-flow).
+
+7. For each finding:
    - Severity: critical / high / medium / low / suggestion
-   - Category: simplicity / disclosure / layout / visual / happy-path / a11y / error-handling
+   - Category: simplicity / disclosure / layout / visual / consistency / hierarchy / flow / happy-path / a11y / error-handling
    - Description: What is wrong
    - Expected: What should happen
    - Actual: What actually happens
    - Screenshot path: Reference to the evidence
    - Suggested fix: If obvious, describe the fix
 
-4. If a step fails (element not found, unexpected state):
+8. If a step fails (element not found, unexpected state):
    - Screenshot the current state
    - Log the failure with full context
    - Attempt to recover (go back, refresh) and continue remaining steps
    - Mark story as `fail`
 
-5. For interactive/behavioral issues, record video:
+9. For interactive/behavioral issues, record video:
    ```bash
    agent-browser --session {SESSION} record start {OUTPUT_DIR}/stories/STORY-{ID}/videos/finding-{N}.webm
    # Reproduce at human pace with sleep 1-2 between actions
    agent-browser --session {SESSION} record stop
    ```
 
-6. For static/visual issues, a single annotated screenshot is sufficient:
+10. For static/visual issues, a single annotated screenshot is sufficient:
    ```bash
    agent-browser --session {SESSION} screenshot --annotate {OUTPUT_DIR}/stories/STORY-{ID}/screenshots/finding-{N}.png
    ```
 
 ## Output
 Write to {OUTPUT_DIR}/stories/STORY-{ID}/:
-- walk-report.md (narrative of what happened at each step)
+- walk-report.md (narrative of what happened at each step; for each distinct
+  screen state include one sentence describing what the screenshot shows plus
+  the geometry-audit result — "clean" or the violations found; end with the
+  Flow Log section from instruction 6)
 - findings.json (array of finding objects — see schema below)
-- screenshots/ (step screenshots + finding screenshots)
+- screenshots/ (step screenshots + finding screenshots + mobile-check)
 - videos/ (video reproductions for interactive issues)
 
 ## findings.json Schema
@@ -314,7 +372,7 @@ Write to {OUTPUT_DIR}/stories/STORY-{ID}/:
     "id": "F-{STORY_ID}-{SEQ}",
     "story_id": "STORY-{ID}",
     "severity": "critical|high|medium|low|suggestion",
-    "category": "simplicity|disclosure|layout|visual|happy-path|a11y|error-handling",
+    "category": "simplicity|disclosure|layout|visual|consistency|hierarchy|flow|happy-path|a11y|error-handling",
     "criterion": "Which specific check failed",
     "score": "warn|fail",
     "description": "...",
@@ -527,13 +585,14 @@ Spawn **1 general-purpose sub-agent** to generate `docs/ux-walker/latest-report.
 The report must include:
 
 1. **Run Metadata** -- Date, target URL, session name, stories walked/skipped/re-verified
-2. **Findings Summary Table** -- Breakdown by severity (critical/high/medium/low/suggestion) and category (simplicity/disclosure/layout/visual/happy-path/a11y/error-handling)
+2. **Findings Summary Table** -- Breakdown by severity (critical/high/medium/low/suggestion) and category (simplicity/disclosure/layout/visual/consistency/hierarchy/flow/happy-path/a11y/error-handling)
 3. **Quick Fixes Applied** -- Table of each fix with before/after description, files changed, and FINDING_ID
 4. **Issues Filed** -- Table with issue number, title, severity, story, and GitHub URL
 5. **UX Audit Summary** -- Common patterns observed, systemic issues (e.g., "inconsistent spacing throughout sidebar"), overall UX quality assessment
-6. **Top 5 Recommendations** -- Prioritized list of the most impactful improvements for the next iteration
-7. **Stories Still Failing** -- List of stories that did not pass, with reasons and unresolved finding references
-8. **Run Statistics** -- Total time, stories per minute, fix success rate
+6. **Visual Consistency & Flow** -- Recurring geometry-audit violations across stories (same misalignment/spacing defect on multiple screens = one systemic finding, not N cosmetic ones); flow friction table (story, steps actual vs. ideal, hesitations); information/controls seen duplicated across screens. If flow or redundancy signals appear in 3+ stories, recommend running `/ux-flow` for the deep simplification pass.
+7. **Top 5 Recommendations** -- Prioritized list of the most impactful improvements for the next iteration
+8. **Stories Still Failing** -- List of stories that did not pass, with reasons and unresolved finding references
+9. **Run Statistics** -- Total time, stories per minute, fix success rate
 
 **Return to orchestrator**: Path to `latest-report.md` + summary.
 
@@ -608,6 +667,7 @@ Example: `ux-walker/F-005-003-sidebar-overflow`
 ## Guidance
 
 - **Stories are the script, not the limit.** If you notice something wrong that is not in the story steps, log it as a finding anyway. Stories guide the walk; they do not restrict what you can observe.
+- **Screenshots are the audit surface, not just evidence.** Accessibility snapshots show structure; only the rendered image shows misalignment, uneven cards, broken wrapping, and spacing defects. Every screenshot gets opened and looked at. Pair eyes with the geometry-audit script: the script measures, the eyes judge.
 - **Sequential walking, parallel fixing.** Stories must be walked one at a time because they share browser state. But fixes are independent and run in parallel with worktree isolation.
 - **Minimal fixes only.** Fix agents should make the smallest change that resolves the finding. No refactoring, no "while I'm here" improvements. Keep the diff small and reviewable.
 - **Evidence for every finding.** Every finding needs at least a screenshot. Interactive issues need video. No exceptions.
@@ -626,6 +686,8 @@ Example: `ux-walker/F-005-003-sidebar-overflow`
 | Reference | When to Read |
 |-----------|--------------|
 | [references/ux-audit-rubric.md](references/ux-audit-rubric.md) | Before walking -- calibrate what to look for in the UX audit |
+| [references/visual-inspection.md](references/visual-inspection.md) | Before walking -- how to actually LOOK at screenshots + geometry audit protocol |
+| [references/geometry-audit.js](references/geometry-audit.js) | During walks -- paste into `agent-browser eval` at each distinct page state |
 | [references/triage-rubric.md](references/triage-rubric.md) | During triage -- decision tree for quick-fix vs. file-issue |
 | [references/action-patterns.md](references/action-patterns.md) | During walks -- translate story steps to agent-browser commands |
 | [references/issue-template.md](references/issue-template.md) | When filing issues -- detailed GitHub issue template with all fields |

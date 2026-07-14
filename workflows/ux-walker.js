@@ -59,7 +59,7 @@ const WALK_RESULT_SCHEMA = {
         type: 'object',
         properties: {
           id: { type: 'string' },
-          type: { type: 'string', enum: ['bug', 'ux-issue', 'visual', 'accessibility', 'performance'] },
+          type: { type: 'string', enum: ['bug', 'ux-issue', 'visual', 'consistency', 'hierarchy', 'flow', 'accessibility', 'performance'] },
           severity: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] },
           title: { type: 'string' },
           description: { type: 'string' },
@@ -86,6 +86,78 @@ const REPORT_SCHEMA = {
 }
 
 const targetUrl = args || 'http://localhost:3000'
+
+// Measurable layout defects: uneven sibling cards, overflow spills, wrapped
+// controls, page overflow. Walk agents write this to a temp file and run it
+// via `agent-browser eval` — numbers beat eyeballs for evenness/spacing.
+// Kept in sync with skills/ux-walker/references/geometry-audit.js.
+const GEOMETRY_AUDIT_SRC = String.raw`(() => {
+  const sig = (e) => {
+    let s = e.tagName.toLowerCase();
+    if (e.id) s += '#' + e.id;
+    else if (typeof e.className === 'string' && e.className.trim())
+      s += '.' + e.className.trim().split(/\s+/).slice(0, 2).join('.');
+    const t = (e.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 30);
+    return t ? s + ' "' + t + '"' : s;
+  };
+  const vis = (e) => {
+    const r = e.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) return false;
+    const cs = getComputedStyle(e);
+    return cs.visibility !== 'hidden' && cs.display !== 'none';
+  };
+  const firstClass = (e) =>
+    typeof e.className === 'string' ? (e.className.trim().split(/\s+/)[0] || '') : '';
+  const out = {
+    pageOverflowX: Math.max(0, document.documentElement.scrollWidth - window.innerWidth),
+    unevenRows: [], overflowSpills: [], wrappedControls: [],
+  };
+  for (const p of document.querySelectorAll('body *')) {
+    const cs = getComputedStyle(p);
+    const flexRow = cs.display.includes('flex') && cs.flexDirection.startsWith('row');
+    const grid = cs.display.includes('grid');
+    if (!flexRow && !grid) continue;
+    const kids = [...p.children].filter(vis);
+    if (kids.length < 2 || kids.length > 16) continue;
+    if (!kids.every((k) => k.tagName === kids[0].tagName && firstClass(k) === firstClass(kids[0]))) continue;
+    const rects = kids.map((k) => k.getBoundingClientRect());
+    const topDrift = Math.max(...rects.map((r) => r.top)) - Math.min(...rects.map((r) => r.top));
+    if (topDrift > 24) continue;
+    const hs = rects.map((r) => Math.round(r.height));
+    const ws = rects.map((r) => Math.round(r.width));
+    const sorted = [...rects].sort((a, b) => a.left - b.left);
+    const gaps = [];
+    for (let i = 1; i < sorted.length; i++) gaps.push(Math.round(sorted[i].left - sorted[i - 1].right));
+    const issue = {};
+    if (Math.max(...hs) - Math.min(...hs) > 8) issue.heights = hs;
+    if (flexRow && Math.max(...ws) - Math.min(...ws) > 8) issue.widths = ws;
+    if (gaps.length > 1 && Math.max(...gaps) - Math.min(...gaps) > 4) issue.gaps = gaps;
+    if (topDrift > 3) issue.topDriftPx = Math.round(topDrift);
+    if (Object.keys(issue).length)
+      out.unevenRows.push({ container: sig(p), children: kids.length, ...issue });
+  }
+  for (const e of document.querySelectorAll('body *')) {
+    if (!vis(e) || e.clientWidth < 24) continue;
+    if (!getComputedStyle(e).overflowX.includes('visible')) continue;
+    if (e.scrollWidth > e.clientWidth + 4)
+      out.overflowSpills.push({ el: sig(e), spillPx: e.scrollWidth - e.clientWidth });
+  }
+  for (const b of document.querySelectorAll('button, [role="button"], a, summary, [class*="tab"], [class*="chip"], [class*="badge"]')) {
+    if (!vis(b)) continue;
+    const cs = getComputedStyle(b);
+    if (cs.display === 'inline') continue;
+    if (b.querySelector('br, svg, img')) continue;
+    const label = (b.textContent || '').trim();
+    if (!label || label.length > 40) continue;
+    const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.4;
+    const contentH = b.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    if (contentH > lh * 1.8) out.wrappedControls.push(sig(b));
+  }
+  for (const k of ['unevenRows', 'overflowSpills', 'wrappedControls']) {
+    if (out[k].length > 12) { out[k] = out[k].slice(0, 12); out[k + 'Truncated'] = true; }
+  }
+  return JSON.stringify(out);
+})();`
 
 // Phase 1: Preflight
 phase('Preflight')
@@ -150,16 +222,35 @@ const walkResults = await parallel(
     agent(
       `Walk the UX story "${story.title}" (${story.id}) through a real browser at ${targetUrl}.
 
+Setup: write the geometry audit script below to /tmp/ux-geometry-audit.js (once, verbatim).
+
 Use agent-browser (the direct binary, not npx) to:
 1. Open ${targetUrl}
 2. Follow each step in the story
 3. At each step:
    - Take a snapshot: agent-browser snapshot -i
+   - Take a screenshot to /tmp/ux-walk-${story.id}-step-N.png and OPEN IT with the
+     Read tool. The accessibility snapshot cannot show misalignment, uneven cards,
+     broken text wrapping, or spacing problems — only the screenshot can. A step
+     where you did not view the screenshot is a step you did not audit.
+   - In the screenshot, look for: sibling cards/tiles with different shapes
+     (height/width/radius/padding), misaligned edges or inconsistent indentation,
+     uneven gaps, wrapped button/tab labels, overflow/clipping, more than one
+     competing primary action, the same information shown twice on one screen
    - Check for console errors: agent-browser errors
-   - Check for visual issues (overlapping elements, broken layouts, missing content)
    - Check for UX issues (confusing labels, missing feedback, broken flows)
    - Check accessibility (contrast, labels, keyboard nav where applicable)
-4. Record findings with severity
+4. At each DISTINCT page state (new page or major layout change), run the
+   geometry audit: agent-browser eval "$(cat /tmp/ux-geometry-audit.js)"
+   It returns JSON (uneven sibling rows, overflow spills, wrapped controls, page
+   overflow). Confirm each hit in the screenshot, then record it as a finding
+   (type: consistency for evenness/alignment, visual for overflow/wrap).
+5. Track flow friction across the whole story: extra steps vs. what the goal
+   should need, moments a first-time user would hesitate (control not found on
+   first snapshot, ambiguous label), data re-entered that the app already knows,
+   confirmations that guard nothing destructive. Record these as findings with
+   type: flow.
+6. Record findings with severity
 
 STORY: ${story.title}
 ID: ${story.id}
@@ -169,7 +260,12 @@ If agent-browser is not available, simulate the walk by reading the codebase to 
 Rules:
 - Only report real issues you can see or trace through code
 - Screenshot descriptions should be specific enough to reproduce
-- Empty findings array is fine for stories that pass cleanly`,
+- One systemic defect is ONE finding: if the same component is uneven on five
+  screens, report it once listing all occurrences
+- Empty findings array is fine for stories that pass cleanly
+
+GEOMETRY AUDIT SCRIPT (write verbatim to /tmp/ux-geometry-audit.js):
+${GEOMETRY_AUDIT_SRC}`,
       { label: `walk:${story.id}`, phase: 'Walk', schema: WALK_RESULT_SCHEMA }
     )
   )

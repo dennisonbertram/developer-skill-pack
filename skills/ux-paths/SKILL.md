@@ -1,7 +1,7 @@
 ---
 name: ux-paths
 description: "Generate exhaustive user journey stories by analyzing the codebase. Creates realistic UX paths (short feature exercises and long end-to-end flows) using a swarm of parallel sub-agents. Use when asked to 'create stories', 'walk the app', 'map user journeys', 'generate ux paths', 'create user flows', 'map the app', 'what can users do', 'generate test scenarios', 'create e2e stories', or 'exercise the app'."
-version: 0.1.0
+version: 0.2.0
 user_invocable: true
 ---
 
@@ -158,6 +158,8 @@ Each story follows this structure:
 **Persona**: {who is doing this — new user, power user, admin, etc.}
 **Goal**: {what the user is trying to accomplish}
 **Preconditions**: {what state must exist before this story starts}
+**Ideal path**: {fewest steps a well-designed UI could plausibly need for this goal — an integer plus one line of reasoning. This is the benchmark /ux-walker and /ux-flow measure friction against.}
+**Alternate paths**: {other routes in the code that reach the same goal (different menu, shortcut, duplicate feature), or "none found"}
 
 ### Steps
 1. {User action} → {Expected result}
@@ -199,6 +201,12 @@ Each story follows this structure:
 - Consider what the user is THINKING at each step, not just clicking
 - Include moments where the user might hesitate, make a mistake, or change their mind
 - Reference actual button labels, menu items, and page titles from the code
+- When the code shows more than one route to the same goal, record ALL of them in
+  **Alternate paths** — duplicated paths are a redundancy signal for /ux-flow, not
+  a choice to silently resolve
+- Note in the story when the same information is rendered on multiple surfaces
+  (e.g., the same entity fields shown on list, detail, and sidebar) — this feeds
+  the catalog's Redundancy Candidates section
 
 **Each agent should produce 5-15 stories** for their topic, mixing short/medium/long.
 
@@ -220,7 +228,8 @@ After all story agents complete, spawn a **general-purpose sub-agent** (no workt
 6. **Add a dependency graph** — which stories should be run before others (e.g., "create account" before "use feature X")
 7. **Verify coverage** — check that every feature from the discovery document is exercised by at least one story
 8. **Flag gaps** — list any features or flows NOT covered by any story
-9. **Produce the final catalog**
+9. **Build the Redundancy Candidates section** — from the stories' **Alternate paths** fields and multi-surface notes, list: goals reachable via multiple paths, information rendered on multiple surfaces, and features/tools whose capabilities overlap. This section is the primary input for `/ux-flow`.
+10. **Produce the final catalog**
 
 ### Final Catalog Format
 
@@ -269,6 +278,17 @@ STORY-001 (Create Account)
 {stories from this topic}
 
 ...
+
+## Redundancy Candidates
+
+### Duplicate paths (same goal, multiple routes)
+- {goal}: via {path A} and {path B} — {same result, or divergent?}
+
+### Duplicate information (same fact, multiple surfaces)
+- {info}: shown on {screen 1}, {screen 2}, {screen 3}
+
+### Overlapping features/tools
+- {feature X} and {feature Y} both {capability} — {distinct enough to keep both?}
 
 ## Gaps & Recommendations
 - {feature/flow not covered and why}
@@ -328,3 +348,4 @@ Print a summary:
 - **Variations matter.** The happy path is one story. The error path, the edge case, the mobile viewport, the slow connection — these are all variations worth capturing.
 - **Cross-topic stories are valuable.** Some of the best test scenarios span multiple feature areas. The consolidation agent should explicitly look for and create these.
 - **Re-run periodically.** As the app evolves, re-run this skill to catch new features and deprecated flows. The catalog is a living document.
+- **The catalog feeds two consumers.** `/ux-walker` walks the stories in a browser (using **Ideal path** as its friction benchmark); `/ux-flow` critiques simplicity and redundancy (using **Alternate paths** and the Redundancy Candidates section). Fill those fields honestly — "none found" is a valid answer; an invented alternate path is not.

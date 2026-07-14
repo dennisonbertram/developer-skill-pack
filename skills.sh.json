@@ -4,8 +4,8 @@
   "groupings": [
     {
       "title": "UX Testing",
-      "description": "Generate user journeys, walk them through a real browser, and implement the issues found.",
-      "skills": ["ux-paths", "ux-walker", "walk-the-issues", "deploy-check"]
+      "description": "Generate user journeys, walk them through a real browser, critique flows for simplicity and redundancy, and implement the issues found.",
+      "skills": ["ux-paths", "ux-walker", "ux-flow", "walk-the-issues", "deploy-check"]
     },
     {
       "title": "Coordination",
