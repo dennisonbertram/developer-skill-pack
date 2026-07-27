@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "developer-skill-pack",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Complete development toolkit — UX testing, multi-agent coordination, TDD workflow, GitHub templates, research spikes, and repo scaffolding. Works with Claude Code.",
   "author": {
     "name": "Dennison Bertram"
@@ -20,6 +20,9 @@
     "research",
     "code-review",
     "regression",
-    "skill-pack"
+    "skill-pack",
+    "macos",
+    "native-apps",
+    "accessibility"
   ]
 }

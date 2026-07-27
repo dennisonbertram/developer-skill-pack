@@ -12,11 +12,19 @@ Works with **Claude Code** and **OpenAI Codex CLI**.
 
 ### UX Testing (from [ux-toolkit](https://github.com/dennisonbertram/ux-toolkit))
 
+Two parallel tracks: the original three skills drive a **web app** through a real
+browser; the `-native` three drive a **native macOS app** through its accessibility
+tree. They share the story schema, the UX rubric, and the triage rules, so a
+catalog and a set of findings mean the same thing on either side.
+
 | Skill | Description |
 |-------|-------------|
 | **ux-paths** | Generate exhaustive user journey stories by analyzing the codebase. Produces short, medium, and long stories with a swarm of parallel sub-agents. Records each story's ideal path length and alternate routes, plus a redundancy-candidates map. |
 | **ux-walker** | Walk the UX story catalog through a real browser, testing each journey for correctness, visual quality, and UX excellence. Inspects every screenshot visually, measures alignment/spacing/wrap defects with a geometry-audit script, and logs flow friction per story. Auto-fixes small issues, files GitHub issues for larger ones. |
 | **ux-flow** | Critique the app for simplicity, clarity, and redundancy. Per-journey friction scorecards ("how could this be simpler?"), cross-journey redundancy hunting (duplicate paths/info/features), and visual-hierarchy/IA audit. Files ranked simplification proposals as `needs-design` issues. |
+| **ux-paths-native** | Native (macOS/iOS) counterpart of ux-paths. Same swarm and story schema, but discovers the app's surface from `WindowGroup`, `NavigationSplitView`, sheets, menu bar commands and keyboard shortcuts instead of routes. Adds stories for first launch, permission prompts, window behaviour, and keyboard-only operation. |
+| **ux-walker-native** | Native counterpart of ux-walker. Drives a running Mac app through its accessibility tree with the bundled `nativeui` driver: element snapshots, click/type/keystroke, window-scoped screenshots, and a geometry audit computed from element frames. Adds keyboard-reachability, menu-bar, dark-mode and VoiceOver-label checks. Requires a one-time Accessibility permission grant. |
+| **ux-flow-native** | Native counterpart of ux-flow. Counts friction in clicks, keystrokes, window transitions and mouse travel; hunts redundancy across window, sidebar, toolbar, menu bar, context menus and settings — while recognising that menu-bar/toolbar/shortcut triples are platform convention, not duplication. Produces a platform report card. |
 | **walk-the-issues** | Groom all open GitHub issues, then loop through them — branching, researching, implementing with swarms, testing, and creating PRs until all issues are complete. |
 | **deploy-check** | Instrument a frontend with version fingerprinting (meta tag + `/__version` endpoint) so LLM-based testing can verify the correct build is deployed before walking. |
 
@@ -286,6 +294,43 @@ Tests each story for correctness, visual quality, and UX excellence. Every scree
 
 Asks "how could this be simpler, how could this be clearer?" for each core journey — friction scorecards against the catalog's ideal paths, cross-journey redundancy hunting (duplicate paths, duplicate information, overlapping features), and a visual-hierarchy audit. Produces ranked simplification proposals and files them as `needs-design` issues. Reuses ux-walker screenshots when fresh.
 
+### Walking a native macOS app instead
+
+The same three steps, against a Mac app rather than a browser. One-time setup:
+
+```bash
+bash skills/ux-walker-native/driver/install.sh
+```
+
+This builds the `nativeui` driver into `~/.claude/bin` and reports whether it is
+allowed to drive apps. If it says `accessibility_trusted: false`, enable your
+terminal in **System Settings › Privacy & Security › Accessibility**, then fully
+quit and relaunch that terminal — a new tab or window is not enough, because the
+running process keeps the old permission state.
+
+```
+/ux-paths-native
+/ux-walker-native MyApp
+/ux-flow-native
+```
+
+`ux-walker-native` takes the app's name as it appears in the menu bar; run
+`~/.claude/bin/nativeui apps` to list candidates. The driver on its own is a
+usable tool:
+
+```bash
+nativeui snapshot --app MyApp          # every control: role, label, value, frame
+nativeui click "Save" --app MyApp      # target by visible label
+nativeui geometry --app MyApp          # uneven siblings, edge drift, overflow
+nativeui screenshot shot.png --app MyApp
+```
+
+Two caveats worth knowing before you start. Walks run at most 3–4 stories in
+parallel because an app has one keyboard and one cursor, unlike browser tabs.
+And two web checks have no native equivalent: responsive breakpoints (replaced
+with a narrow-window reflow check) and the network waterfall (replaced with the
+app's own log output).
+
 ### 9. Research before adopting
 
 ```
@@ -494,6 +539,14 @@ developer-skill-pack/
 │   ├── ux-flow/                       # Simplicity & redundancy critique
 │   │   ├── SKILL.md
 │   │   └── references/                # Simplification heuristics
+│   ├── ux-paths-native/               # Native story generator (macOS/iOS)
+│   │   └── SKILL.md
+│   ├── ux-walker-native/              # Native UX testing via accessibility tree
+│   │   ├── SKILL.md
+│   │   ├── driver/                    # nativeui.swift + install.sh (the native agent-browser)
+│   │   └── references/                # Action patterns + native inspection guide
+│   ├── ux-flow-native/                # Native simplicity & redundancy critique
+│   │   └── SKILL.md
 │   ├── walk-the-issues/               # Issue grooming + implementation loop
 │   │   ├── SKILL.md
 │   │   └── references/
