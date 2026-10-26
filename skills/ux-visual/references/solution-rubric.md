@@ -10,7 +10,7 @@ Three judges per cluster, each scoring every proposal independently:
   testing, impact on other surfaces.
 
 ## External judges
-Meta MUSE Wonder and Google Gemini 4 Argon (run by second-opinion.mjs --mode judge) score with the same criteria and return a winner, an optional graft, and a defense. They count as two additional votes. Record their scores in the decision table; if both reject the chosen option, the decision must rebut their reasoning explicitly.
+Meta MUSE Wonder and Google Gemini 4 Argon (run by second-opinion.mjs --mode judge) score with the same criteria and return a winner, an optional graft, and a defense. They count as two additional votes. Skip this section when the run uses --no-second-opinion. Record their scores in the decision table; if both reject the chosen option, the decision must rebut their reasoning explicitly.
 
 ## Criteria (score 1–5 each; weights in brackets)
 1. Meets every acceptance criterion of the cluster, measurably [×3]

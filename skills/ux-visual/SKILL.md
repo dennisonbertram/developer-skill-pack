@@ -36,7 +36,7 @@ scrolls/it should be one page", "audit every component"
 | Parameter | Default | Notes |
 |-----------|---------|-------|
 | **url** | Auto-detect dev server (curl check; `package.json` dev script) | Target app |
-| **--scope** | Whole app | One route (`/hives/*/room`), a page name, or a component |
+| **--scope** | Whole app | One route (`/projects/*/settings`), a page name, or a component |
 | **--viewports** | `1440x900,1920x1080,768x1024,375x812` | Every surface is judged at each |
 | **--no-implement** | Off | Stop after the decision documents (Phase 5) |
 | **--max-fixes N** | 12 | Max problem clusters carried through solve → implement per run |
@@ -138,7 +138,7 @@ For EVERY viewport × state:
    docs/ux-visual/pages/{slug}/shots/{viewport}-{state}.png (+ -full.png).
    Open every screenshot with the Read tool and look at it properly.
 2. Measure: run {SKILL_DIR}/references/layout-audit.js and
-   ~/.claude/skills/ux-walker/references/geometry-audit.js via
+   {SKILL_DIR}/../ux-walker/references/geometry-audit.js via
    `agent-browser --session {SESSION} eval "$(cat <file>)"`; append both JSON
    results to docs/ux-visual/pages/{slug}/audit.json keyed by viewport/state.
 3. Interact manually like a human: hover every control, tab through the page
@@ -241,7 +241,7 @@ density, consistency with the system), **engineering** (risk, scope,
 reuse, testability). Each scores every proposal 1–5 on: meets acceptance
 criteria, simplicity, consistency with the rest of the app, usability, visual
 quality, effort/risk; and may graft a better idea from a runner-up.
-Then get two external judges: write the cluster (problem, criteria, the three
+Then, unless --no-second-opinion, get two external judges: write the cluster (problem, criteria, the three
 proposals in full) to `proposals/{cluster}/judge-brief.md` and run
 `node {SKILL_DIR}/references/second-opinion.mjs --mode judge --brief <that file>
 --out proposals/{cluster}/external-judges.json <proposal mock screenshots>`.
@@ -331,7 +331,7 @@ deferred clusters (`gh issue create --label ux-visual`), deduping first.
 |------|-----|
 | [references/visual-heuristics.md](references/visual-heuristics.md) | The norms battery every inspector, designer and judge reads first |
 | [references/layout-audit.js](references/layout-audit.js) | Viewport fit, scroll containers, density, whitespace, spacing scale, alignment, type scale, targets, contrast |
-| `~/.claude/skills/ux-walker/references/geometry-audit.js` | Sibling unevenness, spills, wrapped controls |
+| `../ux-walker/references/geometry-audit.js` (sibling skill in this pack) | Sibling unevenness, spills, wrapped controls |
 | [references/solution-rubric.md](references/solution-rubric.md) | Judge scoring and the defense template |
 | [references/second-opinion.mjs](references/second-opinion.mjs) | External critiques/judging by Meta MUSE Wonder and Google Gemini 4 Argon via OpenRouter (max reasoning, images in, JSON out) |
 | [templates/report-template.md](templates/report-template.md) | Final report layout |

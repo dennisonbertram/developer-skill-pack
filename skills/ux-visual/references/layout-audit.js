@@ -30,7 +30,7 @@
 
   // Primary actions outside the viewport (L2): high-emphasis buttons, submit buttons
   const primaries = all.filter((e) =>
-    (e.matches('button[type=submit], [data-primary], .hc-button--primary, [class*="--primary"]') && e.matches('button, a, [role=button]')));
+    (e.matches('button[type=submit], [data-primary], [class*="--primary"]') && e.matches('button, a, [role=button]')));
   const offscreenPrimary = primaries
     .map((e) => ({ el: sig(e), r: e.getBoundingClientRect() }))
     .filter(({ r }) => r.bottom > vh + 1 || r.right > vw + 1 || r.top < 0)
