@@ -37,6 +37,20 @@ catalog and a set of findings mean the same thing on either side.
 | **issue-groomer** | Autonomous backlog groomer. Claims open status-less issues, researches each deeply (codebase + product docs + external APIs), fills the target repo's issue template exhaustively, and applies `status:ready` (clear path) or `status:blocked` (exhaustively groomed, path-decision needed). Loops; WATCH mode re-checks every `poll_interval`. Sequential v1 — one instance per repo. |
 | **issue-implementer** | Autonomous backlog agent. Claims `status:ready` issues, drives each to a tested PR (red → green → regression commits), then loops until the backlog is clear or a stop condition trips. Sequential v1 — one instance per repo. |
 | **mine-transcripts** | Sweep sub-agent JSONL transcripts for novel learnings and promote the strongest to durable docs. Parallel mining with dedupe baseline. |
+| **chief** | Turns one Claude Code session into a chief that coordinates your other local sessions: shows a board of what each is doing, surfaces the questions they are blocked on, relays your answers, delegates big work to other sessions, and sends a notification when something needs you. |
+
+#### chief
+
+Run `/chief` in one session and it coordinates the others. It reads the sessions
+listed in `~/.claude/sessions`, reads a blocked session's screen to show you its
+question, and sends your answer back as key presses. Big tasks go to another
+session through `SendMessage`. `skills/chief/bin/chief` is the helper script; it
+needs `jq` and either `cmux` or `tmux` (sessions in other terminals cannot be
+read). Notifications use `cmux notify`, which returns you to the chief tab on
+click, and fall back to `osascript` without that.
+
+Suggested permissions: allowlist only `chief list|screen|watch|label|notify`; leave
+`chief keys`, `chief type` and `chief launch` to prompt each time.
 
 ### Development Process (from [partyline](https://github.com/dennisonbertram/partyline) + [synthetix](https://github.com/dennisonbertram/synthetix))
 
