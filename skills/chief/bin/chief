@@ -10,7 +10,7 @@ WATCH_LAST="$LEDGER_DIR/watch.last"
 
 die() { echo "chief: $*" >&2; exit 1; }
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
-now_ms() { echo "$(date +%s)000"; }
+now_ms() { perl -MTime::HiRes=time -e 'printf "%d\n", time*1000'; }
 
 # --- calling session -------------------------------------------------------
 # Walk the parent-process chain; the first ancestor pid that has a sessions
@@ -61,7 +61,7 @@ tmux_sock() {
 # Sets globals: S_STATUS S_CWD S_PID S_TMUX S_TSOCK S_SID S_CMUX
 resolve() {
   local line
-  line=$(sessions | awk -F'\t' -v n="$1" '$1==n' | head -1)
+  line=$(sessions | N="$1" awk -F'\t' '$1==ENVIRON["N"]' | head -1)
   [ -n "$line" ] || die "no live session named '$1' (run: chief list)"
   IFS=$'\t' read -r _ S_STATUS S_CWD S_TMUX S_PID S_SID _ _ <<<"$line"
   [ "$S_TMUX" = - ] && S_TMUX=""
@@ -271,6 +271,9 @@ cmd_watch() {
       if [ "$status" = waiting ] && [ "$ts" -gt "$last" ]; then
         label=$(ledger_get "$name" "$sid"); label=${label:-$name}
         found="$found$label ($name, sid ${sid:0:8}) is waiting for input ($wf)"$'\n'
+      elif [ "$status" = idle ] && [ "$ts" -gt "$last" ] && launched "$name" "$sid"; then
+        label=$(ledger_get "$name" "$sid"); label=${label:-$name}
+        found="$found$label ($name, sid ${sid:0:8}) finished and is idle"$'\n'
       fi
     done <<<"$cur"
   fi
@@ -280,7 +283,7 @@ cmd_watch() {
     snap=$(now_ms); cur=$(sessions)
     while IFS=$'\t' read -r name status _ _ _ sid _ _; do
       [ -n "$name" ] || continue
-      was=$(awk -F'\t' -v n="$name" '$1==n{print $2}' <<<"$prev")
+      was=$(N="$name" awk -F'\t' '$1==ENVIRON["N"]{print $2}' <<<"$prev")
       label=$(ledger_get "$name" "$sid"); label=${label:-$name}
       if [ "$status" = waiting ] && [ "$was" != waiting ]; then
         found="$found$label ($name, sid ${sid:0:8}) is waiting for input"$'\n'
