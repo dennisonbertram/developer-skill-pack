@@ -1,0 +1,288 @@
+#!/usr/bin/env bash
+# chief: helper for a Claude Code session that coordinates other local sessions.
+# Needs bash, jq, and either cmux or tmux. Run `chief help`.
+set -euo pipefail
+
+SESS_DIR="${CHIEF_SESSIONS_DIR:-$HOME/.claude/sessions}"
+LEDGER_DIR="$HOME/.claude/chief"
+LEDGER="$LEDGER_DIR/ledger.json"
+WATCH_LAST="$LEDGER_DIR/watch.last"
+
+die() { echo "chief: $*" >&2; exit 1; }
+now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+now_ms() { echo "$(date +%s)000"; }
+
+# --- calling session -------------------------------------------------------
+# Walk the parent-process chain; the first ancestor pid that has a sessions
+# json is the calling session (chief itself) and is excluded from listings.
+SELF_PID=""
+find_self() {
+  local p=$$
+  for _ in $(seq 1 30); do
+    [ -f "$SESS_DIR/$p.json" ] && { SELF_PID=$p; return; }
+    p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ') || break
+    [ -n "$p" ] && [ "$p" -gt 1 ] || break
+  done
+}
+find_self
+
+# --- sessions --------------------------------------------------------------
+# One TSV line per live session other than chief, columns:
+#   1 name  2 status  3 cwd  4 tmux_target  5 pid  6 sessionId  7 waitingFor  8 statusUpdatedAt(ms)
+# Absent values are '-' (read with a tab IFS drops empty fields).
+sessions() {
+  local f pid
+  for f in "$SESS_DIR"/*.json; do
+    [ -f "$f" ] || continue
+    pid=$(jq -r '.pid // empty' "$f" 2>/dev/null) || continue
+    [ -n "$pid" ] || continue
+    ps -p "$pid" >/dev/null 2>&1 || continue
+    [ "$pid" = "$SELF_PID" ] && continue
+    jq -r 'def d: if . == null or . == "" then "-" else . end;
+      [(.name|d), (.status|d), (.cwd|d), (.tmux|d), (.pid|tostring), (.sessionId|d),
+       (.waitingFor|d), ((.statusUpdatedAt // 0)|tostring)] | @tsv' "$f"
+  done
+}
+
+# "workspace surface" of a pid when it runs in cmux, else empty
+cmux_where() {
+  local env ws sf
+  env=$(ps -E -p "$1" -o command= 2>/dev/null || true)
+  ws=$(grep -o 'CMUX_WORKSPACE_ID=[^ ]*' <<<"$env" | head -1 | cut -d= -f2 || true)
+  sf=$(grep -o 'CMUX_SURFACE_ID=[^ ]*' <<<"$env" | head -1 | cut -d= -f2 || true)
+  if [ -n "$ws" ] && [ -n "$sf" ]; then echo "$ws $sf"; fi
+}
+
+# Sets globals: S_STATUS S_CWD S_PID S_TMUX S_SID S_CMUX
+resolve() {
+  local line
+  line=$(sessions | awk -F'\t' -v n="$1" '$1==n' | head -1)
+  [ -n "$line" ] || die "no live session named '$1' (run: chief list)"
+  IFS=$'\t' read -r _ S_STATUS S_CWD S_TMUX S_PID S_SID _ _ <<<"$line"
+  [ "$S_TMUX" = - ] && S_TMUX=""
+  S_CMUX=""
+  [ -n "$S_TMUX" ] || S_CMUX=$(cmux_where "$S_PID")
+  [ -n "$S_TMUX" ] || [ -n "$S_CMUX" ] || die "'$1' is not in tmux or cmux; chief cannot read its screen"
+}
+
+short() { local p=$1; case "$p" in "$HOME"*) p="~${p#"$HOME"}" ;; esac; echo "$p"; }
+
+# --- ledger ----------------------------------------------------------------
+# Entries carry the sessionId; names get reused, so an entry whose sessionId
+# differs from the live session's is ignored.
+ledger_get() { # name sessionId
+  if [ -f "$LEDGER" ]; then
+    jq -r --arg n "$1" --arg s "$2" 'if .[$n].sessionId == $s then .[$n].label // "" else "" end' "$LEDGER"
+  fi
+}
+ledger_set() { # name label cwd launched(true|false) sessionId
+  mkdir -p "$LEDGER_DIR"
+  [ -f "$LEDGER" ] || echo '{}' >"$LEDGER"
+  local tmp; tmp=$(mktemp "$LEDGER_DIR/.ledger.XXXXXX")
+  jq --arg n "$1" --arg l "$2" --arg c "$3" --argjson b "$4" --arg s "$5" --arg t "$(now)" \
+    '(if .[$n].sessionId == $s then .[$n] else {} end) as $old
+     | .[$n] = ($old + {label:$l, cwd:$c, sessionId:$s, updated:$t}
+       + (if $old.launched_by_chief then {} else {launched_by_chief:$b} end))' \
+    "$LEDGER" >"$tmp" && mv "$tmp" "$LEDGER"
+}
+launched() { # name sessionId
+  [ -f "$LEDGER" ] && [ "$(jq -r --arg n "$1" --arg s "$2" \
+    'if .[$n].sessionId == $s then .[$n].launched_by_chief // false else false end' "$LEDGER")" = true ]
+}
+
+# --- screen ----------------------------------------------------------------
+# Print the last N lines of the resolved session's screen (call resolve first).
+read_screen() {
+  if [ -n "$S_TMUX" ]; then tmux capture-pane -p -t "$S_TMUX" | tail -n "$1"
+  else
+    local ws sf; read -r ws sf <<<"$S_CMUX"
+    cmux read-screen --workspace "$ws" --surface "$sf" --lines "$1"
+  fi
+}
+
+# keys/type safety gate: session must be waiting and its screen must contain
+# the expected text, checked in this same process right before sending.
+gate() { # name expect
+  [ "$S_STATUS" = waiting ] || die "'$1' is $S_STATUS, not waiting; refusing"
+  read_screen 60 | grep -qF -- "$2" || die "expected text not on '$1' screen; refusing (re-run: chief screen $1)"
+}
+
+# --- commands --------------------------------------------------------------
+cmd_list() {
+  local name status cwd tmx pid sid wf where
+  sessions | while IFS=$'\t' read -r name status cwd tmx pid sid wf _; do
+    if [ "$tmx" != - ]; then where="tmux $tmx"
+    else
+      where=$(cmux_where "$pid"); where=${where:+cmux ${where// //}}
+    fi
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$status" "$wf" "$(short "$cwd")" "${where:-?}" "$(ledger_get "$name" "$sid")"
+  done
+}
+
+cmd_screen() {
+  [ $# -ge 1 ] || die "usage: chief screen <name> [lines]"
+  local n=${2:-40}
+  [[ "$n" =~ ^[0-9]+$ ]] || die "lines must be an integer"
+  resolve "$1"
+  read_screen "$n"
+}
+
+# Parse "--expect <text> <name>" into EXPECT and NAME; remaining args stay in "$@" via REST.
+parse_expect() {
+  [ "${1:-}" = "--expect" ] && [ -n "${2:-}" ] && [ $# -ge 3 ] || die "usage: chief $CMD --expect \"<text on screen>\" <name> ..."
+  EXPECT=$2; NAME=$3
+}
+
+cmd_keys() {
+  CMD="keys"; parse_expect "$@"; shift 3
+  [ $# -ge 1 ] || die "usage: chief keys --expect \"<text>\" <name> <key>..."
+  local k ws sf
+  for k in "$@"; do
+    case "$k" in Down|Up|Enter|Escape|Space|Tab) ;; *) die "key '$k' not allowed (Down Up Enter Escape Space Tab)" ;; esac
+  done
+  resolve "$NAME"; gate "$NAME" "$EXPECT"
+  if [ -n "$S_TMUX" ]; then tmux send-keys -t "$S_TMUX" -- "$@"
+  else
+    read -r ws sf <<<"$S_CMUX"
+    for k in "$@"; do
+      cmux send-key --workspace "$ws" --surface "$sf" -- "$(tr '[:upper:]' '[:lower:]' <<<"$k")" >/dev/null
+      sleep 0.15
+    done
+  fi
+}
+
+cmd_type() {
+  CMD="type"; parse_expect "$@"; shift 3
+  [ $# -eq 1 ] || die "usage: chief type --expect \"<text>\" <name> <text>"
+  local t=$1 ws sf
+  case "$t" in
+    *$'\n'*|*$'\r'*|*$'\t'*|*\\*) die "text must not contain a newline, carriage return, tab or backslash" ;;
+  esac
+  resolve "$NAME"; gate "$NAME" "$EXPECT"
+  if [ -n "$S_TMUX" ]; then tmux send-keys -t "$S_TMUX" -l -- "$t"
+  else
+    read -r ws sf <<<"$S_CMUX"
+    cmux send --workspace "$ws" --surface "$sf" -- "$t" >/dev/null
+  fi
+}
+
+cmd_label() {
+  local l=false
+  [ "${1:-}" = "--launched" ] && { l=true; shift; }  # mark as launched by chief
+  [ $# -eq 2 ] || die "usage: chief label [--launched] <name> <label>"
+  resolve "$1"
+  ledger_set "$1" "$2" "$S_CWD" "$l" "$S_SID"
+}
+
+cmd_launch() {
+  local ok_flags=0
+  [ "${1:-}" = "--user-asked-flags" ] && { ok_flags=1; shift; }
+  [ $# -ge 2 ] || die "usage: chief launch [--user-asked-flags] <dir> <label> [claude args...]"
+  local dir label known new="" name cwd pid sid cmd="claude" a tsess="" cwsref="" cwsid="" tmx w
+  dir=$(cd "$1" && pwd -P) || die "no such directory: $1"; label=$2; shift 2
+  for a in "$@"; do
+    case "$a" in
+      --dangerously-skip-permissions|--permission-mode|--permission-mode=*|--allowedTools|--allowedTools=*|--allowed-tools|--allowed-tools=*|--settings|--settings=*)
+        [ $ok_flags = 1 ] || die "flag '$a' widens permissions; pass --user-asked-flags first only if the user named it" ;;
+    esac
+  done
+  known=$(sessions | cut -f5 | tr '\n' ' ')
+  [ $# -gt 0 ] && cmd="claude $(printf '%q ' "$@")"
+  if command -v cmux >/dev/null && [ -n "${CMUX_SOCKET_PATH:-}" ] && [ -S "$CMUX_SOCKET_PATH" ]; then
+    cwsref=$(cmux new-workspace --name "$label" --cwd "$dir" --command "$cmd" | grep -o 'workspace:[0-9]*' | head -1)
+    cwsid=$(cmux list-workspaces --id-format both | awk -v r="$cwsref" '$1==r || $2==r {print $2}' | head -1)
+  elif command -v tmux >/dev/null; then
+    tsess="chief-$(date +%s)"
+    tmux new-session -d -s "$tsess" -c "$dir" "$cmd"
+  else
+    die "need cmux or tmux. Ask the user to run, in a new tab: cd '$dir' && $cmd"
+  fi
+  # Wait for a new live session from that workspace/tmux session (cwd as fallback).
+  for _ in $(seq 1 30); do
+    sleep 1
+    while IFS=$'\t' read -r name _ cwd tmx pid sid _ _; do
+      case " $known " in *" $pid "*) continue ;; esac
+      if [ -n "$tsess" ]; then [ "${tmx%%:*}" = "$tsess" ] && new=$name:$sid
+      elif [ -n "$cwsid" ]; then
+        w=$(cmux_where "$pid"); [ "${w%% *}" = "$cwsid" ] && new=$name:$sid
+      elif [ "$(cd "$cwd" 2>/dev/null && pwd -P)" = "$dir" ]; then new=$name:$sid
+      fi
+    done < <(sessions)
+    [ -n "$new" ] && break
+  done
+  # A folder claude has not seen shows a "trust this folder" prompt and does not
+  # register until the user accepts it. Not auto-accepted: that is the user's call.
+  [ -n "$new" ] || die "launched ($label), but no session registered within 30s; it is probably on the trust-folder prompt. Ask the user to accept it (cmux workspace '$label' or tmux session '${tsess:-chief-*}'), then run: chief label --launched <name> '$label'"
+  ledger_set "${new%%:*}" "$label" "$dir" true "${new#*:}"
+  echo "${new%%:*}"
+}
+
+# Exit 0 with one line when a session enters waiting (it was not waiting at
+# start) or a chief-launched session goes busy -> idle. Polls every 5s.
+# On start, first reports any session that went waiting since the last watch exited.
+cmd_watch() {
+  local start prev cur name status was label last="" sid wf ts
+  mkdir -p "$LEDGER_DIR"
+  trap 'now_ms >"$WATCH_LAST"' EXIT
+  [ -f "$WATCH_LAST" ] && last=$(cat "$WATCH_LAST")
+  if [[ "$last" =~ ^[0-9]+$ ]]; then
+    while IFS=$'\t' read -r name status _ _ _ sid wf ts; do
+      if [ "$status" = waiting ] && [ "$ts" -gt "$last" ]; then
+        label=$(ledger_get "$name" "$sid"); label=${label:-$name}
+        echo "$label ($name) is waiting for input ($wf)"; exit 0
+      fi
+    done < <(sessions)
+  fi
+  start=$(sessions | cut -f1,2); prev=$start
+  while sleep 5; do
+    cur=$(sessions | cut -f1,2,6)
+    while IFS=$'\t' read -r name status sid; do
+      [ -n "$name" ] || continue
+      was=$(awk -F'\t' -v n="$name" '$1==n{print $2}' <<<"$prev")
+      label=$(ledger_get "$name" "$sid"); label=${label:-$name}
+      if [ "$status" = waiting ] && [ "$was" != waiting ]; then
+        echo "$label ($name) is waiting for input"; exit 0
+      fi
+      if [ "$status" = idle ] && [ "$was" = busy ] && launched "$name" "$sid"; then
+        echo "$label ($name) finished and is idle"; exit 0
+      fi
+    done <<<"$cur"
+    prev=$(cut -f1,2 <<<"$cur")
+  done
+}
+
+cmd_notify() {
+  [ $# -ge 1 ] || die "usage: chief notify <body> [subtitle]"
+  # No --workspace/--surface: cmux attaches it to this (chief's) surface, so a click returns here.
+  # The osascript fallback cannot focus a tab on click.
+  if command -v cmux >/dev/null && [ -n "${CMUX_SURFACE_ID:-}" ] &&
+     cmux notify --title chief --subtitle "${2:-}" --body "$1" >/dev/null 2>&1; then
+    return 0
+  fi
+  osascript -e 'on run a' -e 'display notification (item 1 of a) with title "chief" subtitle (item 2 of a)' -e 'end run' "$1" "${2:-}"
+}
+
+cmd_help() {
+  cat <<'H'
+chief list                                live sessions (not chief): name, status, waitingFor, folder, where, label
+chief screen <name> [lines]               last N screen lines (default 40)
+chief keys --expect "<text>" <name> <key>..   send Down Up Enter Escape Space Tab; only if waiting
+                                          and <text> is on the screen right now
+chief type --expect "<text>" <name> <text>    send literal text (no Enter; no newline, tab or backslash)
+chief launch [--user-asked-flags] <dir> <label> [claude args..]
+                                          start a session, record label, print its name; refuses
+                                          permission-widening claude flags without --user-asked-flags
+chief label [--launched] <name> <label>   set the ledger label
+chief watch                               block until a session starts waiting or a launched one goes idle;
+                                          reports waits missed since the last watch exited
+chief notify <body> [subtitle]            system notification (cmux; falls back to osascript)
+Ledger: ~/.claude/chief/ledger.json (keyed by name + sessionId). Chief itself is found via the parent-process chain.
+H
+}
+
+c=${1:-help}; [ $# -gt 0 ] && shift
+case "$c" in
+  list) cmd_list ;; screen) cmd_screen "$@" ;; keys) cmd_keys "$@" ;; type) cmd_type "$@" ;;
+  launch) cmd_launch "$@" ;; label) cmd_label "$@" ;; watch) cmd_watch ;; notify) cmd_notify "$@" ;;
+  help|-h|--help) cmd_help ;; *) cmd_help; exit 1 ;;
+esac
