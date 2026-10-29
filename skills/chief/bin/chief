@@ -53,15 +53,23 @@ cmux_where() {
   if [ -n "$ws" ] && [ -n "$sf" ]; then echo "$ws $sf"; fi
 }
 
-# Sets globals: S_STATUS S_CWD S_PID S_TMUX S_SID S_CMUX
+# tmux server socket of a pid (from its TMUX env var, text before the first comma)
+tmux_sock() {
+  ps -E -p "$1" -o command= 2>/dev/null | grep -o 'TMUX=[^ ]*' | head -1 | cut -d= -f2- | cut -d, -f1 || true
+}
+
+# Sets globals: S_STATUS S_CWD S_PID S_TMUX S_TSOCK S_SID S_CMUX
 resolve() {
   local line
   line=$(sessions | awk -F'\t' -v n="$1" '$1==n' | head -1)
   [ -n "$line" ] || die "no live session named '$1' (run: chief list)"
   IFS=$'\t' read -r _ S_STATUS S_CWD S_TMUX S_PID S_SID _ _ <<<"$line"
   [ "$S_TMUX" = - ] && S_TMUX=""
-  S_CMUX=""
-  [ -n "$S_TMUX" ] || S_CMUX=$(cmux_where "$S_PID")
+  S_CMUX=""; S_TSOCK=""
+  if [ -n "$S_TMUX" ]; then
+    S_TSOCK=$(tmux_sock "$S_PID")
+    [ -n "$S_TSOCK" ] || die "cannot find the tmux socket for '$1' (no TMUX in its environment); refusing"
+  else S_CMUX=$(cmux_where "$S_PID"); fi
   [ -n "$S_TMUX" ] || [ -n "$S_CMUX" ] || die "'$1' is not in tmux or cmux; chief cannot read its screen"
 }
 
@@ -77,6 +85,12 @@ ledger_get() { # name sessionId
 }
 ledger_set() { # name label cwd launched(true|false) sessionId
   mkdir -p "$LEDGER_DIR"
+  local lock="$LEDGER_DIR/.lock" tries=0
+  until mkdir "$lock" 2>/dev/null; do
+    tries=$((tries+1)); [ $tries -le 50 ] || die "ledger is locked ($lock); remove it if no chief is running"
+    sleep 0.1
+  done
+  trap 'rmdir "$lock" 2>/dev/null' EXIT
   [ -f "$LEDGER" ] || echo '{}' >"$LEDGER"
   local tmp; tmp=$(mktemp "$LEDGER_DIR/.ledger.XXXXXX")
   jq --arg n "$1" --arg l "$2" --arg c "$3" --argjson b "$4" --arg s "$5" --arg t "$(now)" \
@@ -84,6 +98,7 @@ ledger_set() { # name label cwd launched(true|false) sessionId
      | .[$n] = ($old + {label:$l, cwd:$c, sessionId:$s, updated:$t}
        + (if $old.launched_by_chief then {} else {launched_by_chief:$b} end))' \
     "$LEDGER" >"$tmp" && mv "$tmp" "$LEDGER"
+  rmdir "$lock"; trap - EXIT
 }
 launched() { # name sessionId
   [ -f "$LEDGER" ] && [ "$(jq -r --arg n "$1" --arg s "$2" \
@@ -92,19 +107,28 @@ launched() { # name sessionId
 
 # --- screen ----------------------------------------------------------------
 # Print the last N lines of the resolved session's screen (call resolve first).
-read_screen() {
-  if [ -n "$S_TMUX" ]; then tmux capture-pane -p -t "$S_TMUX" | tail -n "$1"
+read_screen() { # [lines]; no argument = visible screen only (no scrollback)
+  if [ -n "$S_TMUX" ]; then
+    if [ -n "${1:-}" ]; then tmux -S "$S_TSOCK" capture-pane -p -t "$S_TMUX" | tail -n "$1"
+    else tmux -S "$S_TSOCK" capture-pane -p -t "$S_TMUX"; fi
   else
     local ws sf; read -r ws sf <<<"$S_CMUX"
-    cmux read-screen --workspace "$ws" --surface "$sf" --lines "$1"
+    cmux read-screen --workspace "$ws" --surface "$sf" ${1:+--lines "$1"}
   fi
 }
 
-# keys/type safety gate: session must be waiting and its screen must contain
-# the expected text, checked in this same process right before sending.
-gate() { # name expect
+# keys/type safety gate, all checked in this process right before sending:
+# session is waiting, its sessionId starts with SID, the visible screen holds
+# EXPECT, and (if SELECTED is set) the line with the cursor holds SELECTED.
+gate() { # name expect sid selected
+  local scr
   [ "$S_STATUS" = waiting ] || die "'$1' is $S_STATUS, not waiting; refusing"
-  read_screen 60 | grep -qF -- "$2" || die "expected text not on '$1' screen; refusing (re-run: chief screen $1)"
+  [ "${#3}" -ge 8 ] && [ "${S_SID#"$3"}" != "$S_SID" ] || die "sid '$3' does not match '$1' (need 8+ leading characters of its sessionId); refusing"
+  scr=$(read_screen)
+  grep -qF -- "$2" <<<"$scr" || die "expected text not on '$1' screen; refusing (re-run: chief screen $1)"
+  if [ -n "$4" ]; then
+    grep -F '❯' <<<"$scr" | grep -qF -- "$4" || die "cursor line does not contain '$4'; refusing"
+  fi
 }
 
 # --- commands --------------------------------------------------------------
@@ -115,7 +139,7 @@ cmd_list() {
     else
       where=$(cmux_where "$pid"); where=${where:+cmux ${where// //}}
     fi
-    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$status" "$wf" "$(short "$cwd")" "${where:-?}" "$(ledger_get "$name" "$sid")"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$status" "$wf" "${sid:0:8}" "$(short "$cwd")" "${where:-?}" "$(ledger_get "$name" "$sid")"
   done
 }
 
@@ -127,21 +151,37 @@ cmd_screen() {
   read_screen "$n"
 }
 
-# Parse "--expect <text> <name>" into EXPECT and NAME; remaining args stay in "$@" via REST.
-parse_expect() {
-  [ "${1:-}" = "--expect" ] && [ -n "${2:-}" ] && [ $# -ge 3 ] || die "usage: chief $CMD --expect \"<text on screen>\" <name> ..."
-  EXPECT=$2; NAME=$3
+# Parse "--expect <t> --sid <p> [--selected <t>] <name>" into EXPECT SID SELECTED NAME;
+# sets SHIFT to the number of args consumed.
+parse_opts() {
+  EXPECT=""; SID=""; SELECTED=""; SHIFT=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --expect) [ $# -ge 2 ] || die "--expect needs a value"; EXPECT=$2; shift 2; SHIFT=$((SHIFT+2)) ;;
+      --sid) [ $# -ge 2 ] || die "--sid needs a value"; SID=$2; shift 2; SHIFT=$((SHIFT+2)) ;;
+      --selected) [ $# -ge 2 ] || die "--selected needs a value"; SELECTED=$2; shift 2; SHIFT=$((SHIFT+2)) ;;
+      *) break ;;
+    esac
+  done
+  [ -n "$EXPECT" ] && [ -n "$SID" ] && [ $# -ge 1 ] || die "usage: chief $CMD --expect \"<text on screen>\" --sid <8+ chars of sessionId> [--selected \"<option>\"] <name> ..."
+  NAME=$1; SHIFT=$((SHIFT+1))
 }
 
 cmd_keys() {
-  CMD="keys"; parse_expect "$@"; shift 3
-  [ $# -ge 1 ] || die "usage: chief keys --expect \"<text>\" <name> <key>..."
-  local k ws sf
+  CMD="keys"; parse_opts "$@"; shift "$SHIFT"
+  [ $# -ge 1 ] || die "usage: chief keys --expect .. --sid .. [--selected ..] <name> <key>..."
+  local k i=0 n=$# ws sf
   for k in "$@"; do
-    case "$k" in Down|Up|Enter|Escape|Space|Tab) ;; *) die "key '$k' not allowed (Down Up Enter Escape Space Tab)" ;; esac
+    i=$((i+1))
+    case "$k" in
+      Down|Up|Space|Tab) ;;
+      Enter|Escape) [ $i = "$n" ] || die "$k is only allowed as the last key, one per call" ;;
+      *) die "key '$k' not allowed (Down Up Space Tab, then optionally one Enter or Escape last)" ;;
+    esac
+    if [ "$k" = Enter ] && [ -z "$SELECTED" ]; then die "Enter needs --selected \"<option text>\" (the option the user chose)"; fi
   done
-  resolve "$NAME"; gate "$NAME" "$EXPECT"
-  if [ -n "$S_TMUX" ]; then tmux send-keys -t "$S_TMUX" -- "$@"
+  resolve "$NAME"; gate "$NAME" "$EXPECT" "$SID" "$SELECTED"
+  if [ -n "$S_TMUX" ]; then tmux -S "$S_TSOCK" send-keys -t "$S_TMUX" -- "$@"
   else
     read -r ws sf <<<"$S_CMUX"
     for k in "$@"; do
@@ -152,14 +192,14 @@ cmd_keys() {
 }
 
 cmd_type() {
-  CMD="type"; parse_expect "$@"; shift 3
-  [ $# -eq 1 ] || die "usage: chief type --expect \"<text>\" <name> <text>"
+  CMD="type"; parse_opts "$@"; shift "$SHIFT"
+  [ $# -eq 1 ] || die "usage: chief type --expect .. --sid .. <name> <text>"
   local t=$1 ws sf
   case "$t" in
-    *$'\n'*|*$'\r'*|*$'\t'*|*\\*) die "text must not contain a newline, carriage return, tab or backslash" ;;
+    *[[:cntrl:]]*|*\\*) die "text must not contain control characters or backslashes" ;;
   esac
-  resolve "$NAME"; gate "$NAME" "$EXPECT"
-  if [ -n "$S_TMUX" ]; then tmux send-keys -t "$S_TMUX" -l -- "$t"
+  resolve "$NAME"; gate "$NAME" "$EXPECT" "$SID" ""
+  if [ -n "$S_TMUX" ]; then tmux -S "$S_TSOCK" send-keys -t "$S_TMUX" -l -- "$t"
   else
     read -r ws sf <<<"$S_CMUX"
     cmux send --workspace "$ws" --surface "$sf" -- "$t" >/dev/null
@@ -197,7 +237,7 @@ cmd_launch() {
   else
     die "need cmux or tmux. Ask the user to run, in a new tab: cd '$dir' && $cmd"
   fi
-  # Wait for a new live session from that workspace/tmux session (cwd as fallback).
+  # Wait for a new live session from that workspace/tmux session (no cwd fallback).
   for _ in $(seq 1 30); do
     sleep 1
     while IFS=$'\t' read -r name _ cwd tmx pid sid _ _; do
@@ -205,50 +245,52 @@ cmd_launch() {
       if [ -n "$tsess" ]; then [ "${tmx%%:*}" = "$tsess" ] && new=$name:$sid
       elif [ -n "$cwsid" ]; then
         w=$(cmux_where "$pid"); [ "${w%% *}" = "$cwsid" ] && new=$name:$sid
-      elif [ "$(cd "$cwd" 2>/dev/null && pwd -P)" = "$dir" ]; then new=$name:$sid
       fi
     done < <(sessions)
     [ -n "$new" ] && break
   done
   # A folder claude has not seen shows a "trust this folder" prompt and does not
   # register until the user accepts it. Not auto-accepted: that is the user's call.
-  [ -n "$new" ] || die "launched ($label), but no session registered within 30s; it is probably on the trust-folder prompt. Ask the user to accept it (cmux workspace '$label' or tmux session '${tsess:-chief-*}'), then run: chief label --launched <name> '$label'"
+  [ -n "$new" ] || die "launched ($label), but no session tied to the workspace/tmux session chief created appeared within 30s (probably the trust-folder prompt). Ask the user; once the session shows in chief list, run: chief label --launched <name> \"$label\". To accept the prompt use cmux workspace '$label' or tmux session '${tsess:-chief-*}'"
   ledger_set "${new%%:*}" "$label" "$dir" true "${new#*:}"
   echo "${new%%:*}"
 }
 
-# Exit 0 with one line when a session enters waiting (it was not waiting at
-# start) or a chief-launched session goes busy -> idle. Polls every 5s.
-# On start, first reports any session that went waiting since the last watch exited.
+# Exit 0 after printing every event found in one poll, one per line. Events: a
+# session entered waiting, or a chief-launched session went busy -> idle.
+# watch.last holds the time of the poll's snapshot, so on the next start any
+# session that went waiting after it is reported first.
 cmd_watch() {
-  local start prev cur name status was label last="" sid wf ts
+  local prev cur name status was label last="" sid wf ts snap found
   mkdir -p "$LEDGER_DIR"
-  trap 'now_ms >"$WATCH_LAST"' EXIT
   [ -f "$WATCH_LAST" ] && last=$(cat "$WATCH_LAST")
+  snap=$(now_ms); cur=$(sessions); found=""
   if [[ "$last" =~ ^[0-9]+$ ]]; then
     while IFS=$'\t' read -r name status _ _ _ sid wf ts; do
+      [ -n "$name" ] || continue
       if [ "$status" = waiting ] && [ "$ts" -gt "$last" ]; then
         label=$(ledger_get "$name" "$sid"); label=${label:-$name}
-        echo "$label ($name) is waiting for input ($wf)"; exit 0
+        found="$found$label ($name, sid ${sid:0:8}) is waiting for input ($wf)"$'\n'
       fi
-    done < <(sessions)
+    done <<<"$cur"
   fi
-  start=$(sessions | cut -f1,2); prev=$start
-  while sleep 5; do
-    cur=$(sessions | cut -f1,2,6)
-    while IFS=$'\t' read -r name status sid; do
+  while [ -z "$found" ]; do
+    prev=$(cut -f1,2 <<<"$cur")
+    sleep 5
+    snap=$(now_ms); cur=$(sessions)
+    while IFS=$'\t' read -r name status _ _ _ sid _ _; do
       [ -n "$name" ] || continue
       was=$(awk -F'\t' -v n="$name" '$1==n{print $2}' <<<"$prev")
       label=$(ledger_get "$name" "$sid"); label=${label:-$name}
       if [ "$status" = waiting ] && [ "$was" != waiting ]; then
-        echo "$label ($name) is waiting for input"; exit 0
-      fi
-      if [ "$status" = idle ] && [ "$was" = busy ] && launched "$name" "$sid"; then
-        echo "$label ($name) finished and is idle"; exit 0
+        found="$found$label ($name, sid ${sid:0:8}) is waiting for input"$'\n'
+      elif [ "$status" = idle ] && [ "$was" = busy ] && launched "$name" "$sid"; then
+        found="$found$label ($name, sid ${sid:0:8}) finished and is idle"$'\n'
       fi
     done <<<"$cur"
-    prev=$(cut -f1,2 <<<"$cur")
   done
+  printf '%s' "$found"
+  echo "$snap" >"$WATCH_LAST"
 }
 
 cmd_notify() {
@@ -264,11 +306,15 @@ cmd_notify() {
 
 cmd_help() {
   cat <<'H'
-chief list                                live sessions (not chief): name, status, waitingFor, folder, where, label
+chief list                                live sessions (not chief): name, status, waitingFor, sid(8), folder, where, label
 chief screen <name> [lines]               last N screen lines (default 40)
-chief keys --expect "<text>" <name> <key>..   send Down Up Enter Escape Space Tab; only if waiting
-                                          and <text> is on the screen right now
-chief type --expect "<text>" <name> <text>    send literal text (no Enter; no newline, tab or backslash)
+chief keys --expect "<text>" --sid <8+ chars> [--selected "<option>"] <name> <key>..
+                                          send Down Up Space Tab, then optionally ONE Enter or
+                                          Escape as the last key. Only if waiting, the sessionId
+                                          matches, <text> is on the visible screen, and (Enter
+                                          requires --selected) the cursor line holds <option>
+chief type --expect "<text>" --sid <8+ chars> <name> <text>
+                                          send literal text (no Enter; no control characters or backslash)
 chief launch [--user-asked-flags] <dir> <label> [claude args..]
                                           start a session, record label, print its name; refuses
                                           permission-widening claude flags without --user-asked-flags

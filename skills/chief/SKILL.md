@@ -25,7 +25,7 @@ Below, `chief` means that script. Run `chief help` for the commands.
 ## Startup
 
 1. Call `ListAgents` once; its first line gives your own session name, which
-   workers use to reach you. Then run `chief list`. Columns: name, status, waitingFor, folder, where, label.
+   workers use to reach you. Then run `chief list`. Columns: name, status, waitingFor, sid (8 characters), folder, where, label.
    Statuses: `idle`, `busy`, `waiting` (a question or permission dialog is
    open), `shell`.
 2. For every `waiting` session, run `chief screen <name>` and read the question.
@@ -68,25 +68,36 @@ using the same wording. Then relay each answer.
 
 Only after the user has given an explicit answer.
 
-`chief keys` and `chief type` work only on a `waiting` session, only with
-`--expect "<text>"` (text that must be on the screen at that moment), and only
-send these keys: Down, Up, Enter, Escape, Space, Tab. There is no override.
+`chief keys` and `chief type` work only when all of these hold at the moment of
+sending, and there is no override:
+- the session is `waiting`;
+- `--sid <first 8+ characters of its sessionId>` matches. Use the sid that
+  `chief list` showed when you showed the user the question, so a reused name
+  cannot redirect the keys;
+- `--expect "<text>"` is on the visible screen;
+- for Enter, `--selected "<option text>"` is on the line with the `❯` cursor.
 
-1. Run `chief screen <name>`. Confirm the question and options are the ones the
-   user answered. If not, tell the user and stop.
-2. Move to the user's option n: `chief keys --expect "<question text>" <name> Down ...`
+Keys allowed: Down, Up, Space, Tab, then optionally ONE Enter or Escape as the
+last key of the call. Re-read the screen and re-check before every further step
+(the next question, each Space toggle, and so on); never batch steps together.
+
+1. Run `chief screen <name>` and `chief list`. Confirm the question and options
+   are the ones the user answered, and note the sid.
+2. Move to the user's option n: `chief keys --expect "<question text>" --sid <sid> <name> Down ...`
    (n-1 times). The cursor starts on option 1.
-3. Before Enter, run `chief screen <name>` and check that the line with the
-   `❯` cursor holds the text of the option the user chose. If not, stop and show
-   the user the screen.
-4. Send `chief keys --expect "<chosen option text>" <name> Enter`.
+3. Run `chief screen <name>` and check that the `❯` line holds the option the
+   user chose. If not, stop and show the user the screen.
+4. Send `chief keys --expect "<question text>" --sid <sid> --selected "<option text>" <name> Enter`.
 5. Free text: select the free-text option using the label the screen shows (do not
-   assume "Type something."), run `chief type --expect "<question text>" <name> "<text>"`
-   (no newline, tab, or backslash allowed), then Enter as in step 4.
+   assume "Type something."), run `chief type --expect "<question text>" --sid <sid> <name> "<text>"`
+   (control characters and backslashes are refused), then Enter as in step 4.
 6. Several questions in one dialog: Enter moves to the next question. Answer each
-   one with the user's answer for that question only; repeat steps 1-4 per question.
-7. Multi-select: Space toggles the option under the cursor. Toggle exactly the
-   options the user named, then Enter.
+   one with the user's answer for that question only; repeat steps 1-4 per question,
+   re-reading the screen each time.
+7. Multi-select: read which options are already checked on the screen. Toggle
+   (Space, one call each, re-reading the screen) only the options needed so that
+   exactly the user's set is checked. Check the whole selection on the screen,
+   then send Enter.
 8. Run `chief screen <name>` and confirm the dialog closed. If it is still open
    after Enter, stop and show the user the screen. Never resend keys.
 
