@@ -5,7 +5,7 @@
     {
       "title": "UX Testing",
       "description": "Generate user journeys, walk them through a real browser, critique flows for simplicity and redundancy, and implement the issues found.",
-      "skills": ["ux-paths", "ux-walker", "ux-flow", "ux-visual", "walk-the-issues", "deploy-check"]
+      "skills": ["ux-paths", "ux-walker", "ux-flow", "ux-visual", "ux-auto-improve", "walk-the-issues", "deploy-check"]
     },
     {
       "title": "Coordination",
