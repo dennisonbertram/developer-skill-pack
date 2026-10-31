@@ -90,7 +90,28 @@ For every merged improvement, make a short narrated walkthrough (30–90 s):
 
 Recording: drive the app with Playwright (`recordVideo`) or take a sequence of
 agent-browser screenshots. Use a 1440×900 or 1920×1080 viewport, zoom so text is
-readable on video, and pause on each state long enough to read it.
+readable on video, and pause on each state long enough to read it. Record the
+before and after with one script, so the two clips show the same steps.
+
+**Annotate what the narration is talking about.** A viewer cannot tell which
+of twenty things on screen a sentence means. Whenever the narration points at
+something ("the block below", "this badge", "the menu"), highlight it with the
+bundled `scripts/annotate.mjs`. It dims the rest of the screen, draws a ring
+around the element and adds a short caption (2–5 words, e.g. "No warning",
+"Now: paused + date", "Menu moved here"). Hold each annotation 2–3 s, and clear
+it before scrolling or navigating, because the overlay is fixed to the
+viewport. Use one annotation at a time. Caption the problem in the before
+clip and the fix in the after clip, on the same element.
+
+```js
+import { annotate, clearAnnotations } from "./annotate.mjs";
+await annotate(page, page.getByText("Payroll (paused)").locator(".."), "No warning");
+await page.waitForTimeout(2500);
+await clearAnnotations(page);
+```
+
+For stills and illustrations, put the same ring and caption into the image
+itself (draw it in the HTML before rendering).
 
 **Code-only improvements** (speed, DRY, reliability) get illustrations instead of
 screen recordings: simple diagrams rendered from HTML or SVG to PNG, one idea per
