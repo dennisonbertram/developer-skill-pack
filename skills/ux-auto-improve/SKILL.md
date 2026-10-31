@@ -113,6 +113,20 @@ await clearAnnotations(page);
 For stills and illustrations, put the same ring and caption into the image
 itself (draw it in the HTML before rendering).
 
+**Make keypresses visible.** A viewer can't see a keyboard. Before each key
+press, show it as a caption on the element it acts on ("Pressed j", "u marks it
+unread"), and send exactly one press with Playwright's `keyboard.press`.
+
+**Check clips with contact sheets.** Extract a frame every 2–3 s into one grid
+image per clip (`ffmpeg -vf fps=0.4,scale=640:-1,tile=3x3`) and look at it: one
+image shows whether every ring and caption landed, instead of opening many
+stills.
+
+**Illustrations:** render each slide as its own HTML file at 1920×1080 with
+headless Chrome (`--headless=new --window-size=1920,1080 --screenshot`). Keep
+one shared stylesheet; never build a slide by cutting text out of another
+slide's file, or stray content from it shows up in the frame.
+
 **Code-only improvements** (speed, DRY, reliability) get illustrations instead of
 screen recordings: simple diagrams rendered from HTML or SVG to PNG, one idea per
 frame, large type (at least 32 px at 1080p), at most about 6 boxes, the before
@@ -144,6 +158,10 @@ proposals and new user stories in the ledger, then start the next section.
 - Before blaming a change for a failing story or test, run the same check on main. Pre-existing failures are noted, not fixed in passing.
 - Branches that pass alone can fail together (shared test mocks). Always run the focused tests on the integrated branch.
 - Browser-automation tools can repeat a single keypress many times. Confirm keyboard behaviour with Playwright's `keyboard.press` before calling it an app bug.
+- When a proposal needs a product choice the code can't settle (which model to recommend, whether to reverse an earlier deliberate decision), ask the owner with concrete options and a recommendation, and build the rest meanwhile. If an option turns out not to exist (a model id missing from the catalog), stop and ask again rather than guess.
+- Use a fresh recorder agent per round and point it at the previous round's working scripts (login, recording, annotation). Reusing one agent across rounds bloats its context; rewriting the scripts each round wastes time.
+- For "before" clips, remove unrelated blockers that would hide the change being shown (for example dismiss a toast, or reset focus), but never in the shot whose subject is that blocker.
+- Desktop apps (Electron, native) can be driven without stealing the user's focus through the OS accessibility tree, e.g. with `agent-desktop` (headless by default). Prefer that over a desktop e2e suite that takes over the screen.
 - Recording setup must do every step a real user does (e.g. click "Use this model", not just pick from a list); a skipped step silently records the wrong state.
 
 ## Rules
