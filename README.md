@@ -23,6 +23,7 @@ catalog and a set of findings mean the same thing on either side.
 | **ux-walker** | Walk the UX story catalog through a real browser, testing each journey for correctness, visual quality, and UX excellence. Inspects every screenshot visually, measures alignment/spacing/wrap defects with a geometry-audit script, and logs flow friction per story. Auto-fixes small issues, files GitHub issues for larger ones. |
 | **ux-flow** | Critique the app for simplicity, clarity, and redundancy. Per-journey friction scorecards ("how could this be simpler?"), cross-journey redundancy hunting (duplicate paths/info/features), and visual-hierarchy/IA audit. Files ranked simplification proposals as `needs-design` issues. |
 | **ux-visual** | Exhaustive visual and hands-on design critique of every component, page and layout. Screenshots and measures each surface at desktop and phone widths, interacts with it, judges density, whitespace, clarity and standards, then has competing solution designers propose fixes, picks the winner, implements it in the design system, and verifies it with tests and fresh screenshots. |
+| **ux-auto-improve** | Improve one app section per round, in a loop: a cheap reviewer critiques UX, DRY, modularity, speed and reliability; Opus or Fable judges the proposals for user experience and argues against them; cheap implementers build the survivors in parallel with regression tests; the lead tests and merges; each improvement gets a narrated before/after walkthrough video (or clear illustrations for code-only changes). |
 | **ux-paths-native** | Native (macOS/iOS) counterpart of ux-paths. Same swarm and story schema, but discovers the app's surface from `WindowGroup`, `NavigationSplitView`, sheets, menu bar commands and keyboard shortcuts instead of routes. Adds stories for first launch, permission prompts, window behaviour, and keyboard-only operation. |
 | **ux-walker-native** | Native counterpart of ux-walker. Drives a running Mac app through its accessibility tree with the bundled `nativeui` driver: element snapshots, click/type/keystroke, window-scoped screenshots, and a geometry audit computed from element frames. Adds keyboard-reachability, menu-bar, dark-mode and VoiceOver-label checks. Requires a one-time Accessibility permission grant. |
 | **ux-flow-native** | Native counterpart of ux-flow. Counts friction in clicks, keystrokes, window transitions and mouse travel; hunts redundancy across window, sidebar, toolbar, menu bar, context menus and settings — while recognising that menu-bar/toolbar/shortcut triples are platform convention, not duplication. Produces a platform report card. |
@@ -555,6 +556,7 @@ developer-skill-pack/
 │   │   ├── SKILL.md
 │   │   └── references/                # Simplification heuristics
 │   ├── ux-visual/                     # Visual & design-system critique + fixes
+│   ├── ux-auto-improve/               # Review → judge → build → merge → narrated video loop
 │   │   ├── SKILL.md
 │   │   ├── references/                # Visual heuristics, solution rubric, layout-audit.js, second-opinion.mjs
 │   │   └── templates/
