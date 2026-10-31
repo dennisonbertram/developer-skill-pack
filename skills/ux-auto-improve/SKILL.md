@@ -138,6 +138,14 @@ Report per improvement: what changed and why, tests, what was hand tested,
 the PR, the video path, and what remains unverified. Record deferred
 proposals and new user stories in the ledger, then start the next section.
 
+## Lessons from real rounds
+- The judge often overturns the reviewer: claims built on hand-made seed data, behaviour that was already there, or a deliberate earlier decision (check `git log` for the commit that introduced the current behaviour before reversing it). Always let the judge re-read the code.
+- Seed scripts must reproduce realistic state, or the evidence lies (e.g. a failing source whose refresh time was set to "now" made two views disagree when real data never does). Keep one idempotent seed script per round and reuse it for testing and recording.
+- Before blaming a change for a failing story or test, run the same check on main. Pre-existing failures are noted, not fixed in passing.
+- Branches that pass alone can fail together (shared test mocks). Always run the focused tests on the integrated branch.
+- Browser-automation tools can repeat a single keypress many times. Confirm keyboard behaviour with Playwright's `keyboard.press` before calling it an app bug.
+- Recording setup must do every step a real user does (e.g. click "Use this model", not just pick from a list); a skipped step silently records the wrong state.
+
 ## Rules
 - Never run against the user's live instance or real accounts; use demo/preview stacks and fake data.
 - Keep at most 1–2 heavy stacks running at once; always stop the ones you start.
