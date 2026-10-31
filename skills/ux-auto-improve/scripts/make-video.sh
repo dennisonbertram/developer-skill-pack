@@ -33,15 +33,15 @@ while IFS=$'\t' read -r media text; do
   case "$media" in
     *.png|*.jpg|*.jpeg)
       dur=$(echo "$ad + 0.6" | bc)
-      ffmpeg -v error -y -loop 1 -t "$dur" -i "$media" -i "$a" -vf "$fit,format=yuv420p" \
+      ffmpeg -nostdin -v error -y -loop 1 -t "$dur" -i "$media" -i "$a" -vf "$fit,format=yuv420p" \
         -af apad -t "$dur" -c:v libx264 -c:a aac -ar 48000 "$v" ;;
     *)
       vd=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$media")
       dur=$(echo "if ($ad + 0.6 > $vd) $ad + 0.6 else $vd" | bc)
-      ffmpeg -v error -y -i "$media" -i "$a" -vf "$fit,tpad=stop_mode=clone:stop_duration=600,format=yuv420p" \
+      ffmpeg -nostdin -v error -y -i "$media" -i "$a" -vf "$fit,tpad=stop_mode=clone:stop_duration=600,format=yuv420p" \
         -af apad -map 0:v -map 1:a -t "$dur" -c:v libx264 -c:a aac -ar 48000 "$v" ;;
   esac
   echo "file '$v'" >> "$list"
 done < "$scenes"
-ffmpeg -v error -y -f concat -safe 0 -i "$list" -c copy "$out"
+ffmpeg -nostdin -v error -y -f concat -safe 0 -i "$list" -c copy "$out"
 echo "$out $(ffprobe -v error -show_entries format=duration -of csv=p=0 "$out")s"
