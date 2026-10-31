@@ -105,8 +105,8 @@ Render the scenes with the bundled script:
 skills/ux-auto-improve/scripts/make-video.sh scenes.tsv out/live-pages-paused.mp4
 ```
 
-The voice is ElevenLabs "Rachel" (female) when `ELEVENLABS_API_KEY` is set, or
-`UX_VOICE_ID` picks another voice; otherwise macOS `say`. Only narration
+The voice is ElevenLabs "Rachel" (female) when `ELEVENLABS_API_KEY` is set;
+`UX_VOICE_ID` picks another voice. Without a key it uses macOS `say`. Only narration
 text is sent to the TTS service, so keep secrets and private data out of it.
 Watch at least one scene of each video (or read back its frames) before
 calling it done. Store videos outside a public repo unless the owner says
