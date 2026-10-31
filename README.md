@@ -310,6 +310,17 @@ Tests each story for correctness, visual quality, and UX excellence. Every scree
 
 Asks "how could this be simpler, how could this be clearer?" for each core journey — friction scorecards against the catalog's ideal paths, cross-journey redundancy hunting (duplicate paths, duplicate information, overlapping features), and a visual-hierarchy audit. Produces ranked simplification proposals and files them as `needs-design` issues. Reuses ux-walker screenshots when fresh.
 
+### 8b. Improve one section end to end, with narrated videos
+
+```
+/ux-auto-improve              # pick the next unreviewed section
+/ux-auto-improve Inbox        # or name one
+```
+
+One round: a cheap reviewer critiques the section, Opus or Fable judges the proposals for user experience and argues against them, cheap implementers build the survivors in parallel (each with a failing regression test first), and the lead tests and merges. Every merged improvement gets a short before/after walkthrough video narrated in a natural female voice, with on-screen rings and captions on whatever the narration is talking about. Changes that are only in code get large-type illustrations instead. Run it under `/loop` to keep going section by section.
+
+Requirements: `ffmpeg`, `jq` and `bc`; Playwright for recording; `ELEVENLABS_API_KEY` for the voice (falls back to macOS `say` without it; `UX_VOICE_ID` picks another voice). Only the narration text is sent to ElevenLabs. Optional: [`agent-desktop`](https://github.com/vercel-labs/agent-desktop) to check desktop apps without taking over your screen.
+
 ### Walking a native macOS app instead
 
 The same three steps, against a Mac app rather than a browser. One-time setup:
