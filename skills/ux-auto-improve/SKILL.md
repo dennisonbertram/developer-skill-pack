@@ -21,6 +21,9 @@ recording. Every subagent gets an explicit `model`.
 
 ## The round
 
+### Parallel rounds
+Several sections can be in flight at once (for example three): reviews and judging need no shared resources; builds use separate worktrees; only stacks are scarce. Keep at most one or two heavy stacks per machine, hand them out through a lock, and start the next section whenever one merges.
+
 ### 1. Pick the section
 Use the argument, or the next unreviewed area. Keep a ledger at
 `docs/ux-auto-improve/ledger.md` (section, date, PRs, videos) in the target
@@ -162,6 +165,10 @@ proposals and new user stories in the ledger, then start the next section.
 - Use a fresh recorder agent per round and point it at the previous round's working scripts (login, recording, annotation). Reusing one agent across rounds bloats its context; rewriting the scripts each round wastes time.
 - For "before" clips, remove unrelated blockers that would hide the change being shown (for example dismiss a toast, or reset focus), but never in the shot whose subject is that blocker.
 - Desktop apps (Electron, native) can be driven without stealing the user's focus through the OS accessibility tree, e.g. with `agent-desktop` (headless by default). Prefer that over a desktop e2e suite that takes over the screen.
+- Never let agents use `git stash`: the stash list is shared by every worktree, so one agent's `stash pop` can pull another agent's changes into its tree. Set work aside with `git diff > file.patch` instead. Before discarding stray changes, save them as a patch and check they match a committed branch.
+- Start demo/preview stacks with a scripted or fake model (no real provider key) unless the round is about the model itself. Real keys in the environment get spent by reviewers and recorders.
+- When several sections run in parallel, share stacks through a small lock script (acquire waits for a free slot; release after teardown). Release a lock you took on someone's behalf as soon as they finish; a stale lock silently stalls every waiting agent.
+- Security findings from a judge get their own investigator: a failing test that shows the outcome first, the narrowest fix in the enforcing layer (not the UI), and one adversarial review of the fix.
 - Recording setup must do every step a real user does (e.g. click "Use this model", not just pick from a list); a skipped step silently records the wrong state.
 
 ## Rules
