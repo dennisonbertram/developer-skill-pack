@@ -16,6 +16,11 @@
       "title": "Development Process",
       "description": "TDD workflow, debugging, regression testing, and repo scaffolding.",
       "skills": ["setup-repo", "debug", "regression-guard", "research-spike"]
+    },
+    {
+      "title": "Web",
+      "description": "Free web search for agents over MCP.",
+      "skills": ["free-web-search"]
     }
   ]
 }

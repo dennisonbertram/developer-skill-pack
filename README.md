@@ -62,6 +62,12 @@ Suggested permissions: allowlist only `chief list|screen|watch|label|notify`; le
 | **regression-guard** | Post-fix test-coverage analysis — generates unit and regression tests, audits how the bug could have been caught earlier. |
 | **research-spike** | Time-boxed research with Context7 integration — produces structured findings in `docs/research/`. |
 
+### Web
+
+| Skill | Description |
+|-------|-------------|
+| **free-web-search** | Free web search for agents over MCP, with no sign-in and no API key. Uses a `web_search` tool when installed, otherwise a bundled `curl` script, and offers the one-line MCP install for Claude Code, Codex, or Cursor. Results are treated as untrusted and cited by URL. |
+
 ### Hooks
 
 | Hook | Event | Description |
@@ -598,8 +604,11 @@ developer-skill-pack/
 │   │   └── SKILL.md
 │   ├── regression-guard/              # Post-fix test coverage
 │   │   └── SKILL.md
-│   └── research-spike/               # Structured research
-│       └── SKILL.md
+│   ├── research-spike/               # Structured research
+│   │   └── SKILL.md
+│   └── free-web-search/               # Free web search over MCP
+│       ├── SKILL.md
+│       └── scripts/search.sh
 ├── workflows/                         # Deterministic multi-agent workflow scripts
 │   ├── mine-transcripts.js            # Parallel transcript mining with dedupe
 │   ├── code-review.js                 # 5-dimension review + adversarial verify
