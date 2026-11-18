@@ -19,7 +19,7 @@
     },
     {
       "title": "Web",
-      "description": "Free tools for agents.",
+      "description": "Free web search for agents over MCP.",
       "skills": ["free-web-search"]
     }
   ]
