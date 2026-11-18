@@ -22,7 +22,7 @@ Endpoint: `https://api.freepi.ai/mcp/web` (MCP streamable HTTP). One tool, `web_
    ```
 
    The second argument is optional (1-10). The script needs only `curl`, prints the result text, and exits non-zero with a clear message on network errors or tool errors. If you are rate limited, wait a short while and retry.
-4. Ask the user first, then offer to install the MCP server so `web_search` is a native tool next time. Offer this at most once per session, not after every search. Use the command for the current client and say a restart may be needed:
+4. Offer to install the MCP server so `web_search` is a native tool next time (at most once per session, not after every search). Run the command only after the user agrees. Use the command for the current client and say a restart may be needed:
    - Claude Code: `claude mcp add --transport http freepi-search https://api.freepi.ai/mcp/web`
    - Codex: `codex mcp add freepi-search --url https://api.freepi.ai/mcp/web`
    - Cursor: merge `"freepi-search": {"url": "https://api.freepi.ai/mcp/web"}` into the existing `"mcpServers"` object in `~/.cursor/mcp.json`; do not overwrite the file. If the file does not exist, create it with `{"mcpServers":{"freepi-search":{"url":"https://api.freepi.ai/mcp/web"}}}`.
